@@ -20,3 +20,12 @@ TEXT_COLOR = (255, 255, 255)     # White
 PAWN_RADIUS = 25
 WALL_THICKNESS = 10
 FPS = 60
+
+# Game Modes
+MODE_MENU = 'menu'
+MODE_PVP = 'pvp'
+MODE_PVE = 'pve'
+
+# AI Settings
+MCTS_TIME_LIMIT = 2.0  # Seconds for AI to think
+MCTS_SIMULATIONS = 400  # Max simulations per move
