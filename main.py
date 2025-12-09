@@ -1,9 +1,21 @@
-import os
-import torch
+
+from constants import *
+from game import GameState, Wall, Position
+from AI.mcts import AIPlayer
 import pygame
 import sys
 
-from constants import *
+# --- SETUP ---
+pygame.init()
+screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
+pygame.display.set_caption("Quoridor")
+clock = pygame.time.Clock()
+font = pygame.font.Font(None, 36)
+small_font = pygame.font.Font(None, 28)
+
+# Load Assets
+raw_tile_img = pygame.image.load('assets/tile.png')
+tile_img = pygame.transform.scale(raw_tile_img, (TILE_SIZE, TILE_SIZE))
 
 # --- HELPER FUNCTIONS ---
 

@@ -1,3 +1,8 @@
+# --- CONFIGURATION ---
+SCREEN_WIDTH = 800
+SCREEN_HEIGHT = 800
+BG_COLOR = (45, 30, 15)  # Dark Brown 
+
 # Grid Settings
 MARGIN_X = 50       
 MARGIN_Y = 50       
