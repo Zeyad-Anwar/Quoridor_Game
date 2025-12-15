@@ -69,6 +69,7 @@ class QuoridorNet(nn.Module):
         
         self.board_size = board_size
         self.action_size = action_size
+        self._device = None  # Cached device
         
         # Initial convolution
         self.conv_input = nn.Conv2d(input_channels, num_filters, kernel_size=3, padding=1)
@@ -127,6 +128,13 @@ class QuoridorNet(nn.Module):
         
         return policy_logits, value
     
+    @property
+    def device(self) -> torch.device:
+        """Get cached device of the model."""
+        if self._device is None:
+            self._device = next(self.parameters()).device
+        return self._device
+    
     def predict(
         self, 
         state: np.ndarray, 
@@ -143,19 +151,14 @@ class QuoridorNet(nn.Module):
             policy: Probability distribution over actions (209,)
             value: Position evaluation scalar
         """
-        self.eval()
-        
-        with torch.no_grad():
-            # Add batch dimension and convert to tensor
-            x = torch.FloatTensor(state).unsqueeze(0)
-            
-            if next(self.parameters()).is_cuda:
-                x = x.cuda()
+        with torch.inference_mode():
+            # Add batch dimension and convert to tensor - use cached device
+            x = torch.from_numpy(state.astype(np.float32)).unsqueeze(0).to(self.device)
             
             policy_logits, value = self.forward(x)
             
-            # Apply legal action mask
-            policy_logits = policy_logits.cpu().numpy()[0]
+            # Apply legal action mask on CPU
+            policy_logits = policy_logits[0].cpu().numpy()
             
             if legal_mask is not None:
                 policy_logits[~legal_mask] = -np.inf
@@ -181,24 +184,22 @@ class QuoridorNet(nn.Module):
             policies: Batch of probability distributions (batch, 209)
             values: Batch of evaluations (batch,)
         """
-        self.eval()
-        
-        with torch.no_grad():
-            x = torch.FloatTensor(states)
-            
-            if next(self.parameters()).is_cuda:
-                x = x.cuda()
+        with torch.inference_mode():
+            x = torch.from_numpy(states.astype(np.float32)).to(self.device, non_blocking=True)
             
             policy_logits, values = self.forward(x)
             
-            policy_logits = policy_logits.cpu().numpy()
-            values = values.cpu().numpy().flatten()
-            
+            # Apply legal mask before softmax (on GPU if available)
             if legal_masks is not None:
-                policy_logits[~legal_masks] = -np.inf
+                mask_tensor = torch.from_numpy(legal_masks).to(self.device, non_blocking=True)
+                policy_logits = policy_logits.masked_fill(~mask_tensor, float('-inf'))
             
-            # Convert to probabilities
-            policies = np.apply_along_axis(self._softmax, 1, policy_logits)
+            # Softmax on GPU (much faster than numpy)
+            policies = torch.softmax(policy_logits, dim=1)
+            
+            # Move to CPU for return
+            policies = policies.cpu().numpy()
+            values = values.cpu().numpy().flatten()
             
             return policies, values
     
@@ -260,5 +261,8 @@ def create_network(device: str = 'cpu') -> QuoridorNet:
     
     if device == 'cuda' and torch.cuda.is_available():
         net = net.cuda()
+        net._device = torch.device('cuda')  # Set cached device
+    else:
+        net._device = torch.device('cpu')
     
     return net

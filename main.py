@@ -2,11 +2,98 @@
 Quoridor Game - Main Entry Point
 A strategic board game with pygame implementation.
 """
-from constants import *
-from game import GameState, Wall, Position
-from AI.mcts import AIPlayer
+import os
+import torch
 import pygame
 import sys
+
+from constants import *
+from game import GameState, Wall, Position
+from AI.alpha_mcts import AlphaZeroPlayer
+from AI.network import QuoridorNet
+
+
+# --- AI MODEL LOADING ---
+
+CHECKPOINT_DIR = "checkpoints"
+
+def get_latest_checkpoint() -> str | None:
+    """Get the path to the latest checkpoint file."""
+    if not os.path.exists(CHECKPOINT_DIR):
+        return None
+    
+    checkpoints = [f for f in os.listdir(CHECKPOINT_DIR) if f.endswith('.pt')]
+    if not checkpoints:
+        return None
+    
+    # Prefer model_final.pt if it exists
+    if 'model_autosave.pt' in checkpoints:
+        return os.path.join(CHECKPOINT_DIR, 'model_autosave.pt')
+    
+    # Otherwise get the highest iteration number
+    iter_checkpoints = [f for f in checkpoints if f.startswith('model_iter_')]
+    if iter_checkpoints:
+        iter_checkpoints.sort(key=lambda x: int(x.split('_')[-1].replace('.pt', '')))
+        return os.path.join(CHECKPOINT_DIR, iter_checkpoints[-1])
+    
+    # Fallback to any checkpoint
+    return os.path.join(CHECKPOINT_DIR, checkpoints[0])
+
+
+def load_ai_player(player: int, difficulty: str = 'medium') -> AlphaZeroPlayer:
+    """Load the AI player with the trained neural network model.
+    
+    Args:
+        player: Player number (1 or 2)
+        difficulty: Difficulty level ('easy', 'medium', 'hard')
+    """
+    # Get difficulty settings
+    if difficulty not in DIFFICULTY_PRESETS:
+        print(f"Unknown difficulty '{difficulty}', using 'medium'")
+        difficulty = 'medium'
+    
+    settings = DIFFICULTY_PRESETS[difficulty]
+    num_simulations = settings['num_simulations']
+    temperature = settings['temperature']
+    
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    
+    network = QuoridorNet()
+    
+    checkpoint_path = get_latest_checkpoint()
+    if checkpoint_path and os.path.exists(checkpoint_path):
+        print(f"Loading AI model from: {checkpoint_path}")
+        print(f"Difficulty: {difficulty.upper()} (sims={num_simulations}, temp={temperature})")
+        try:
+            checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=True)
+            # Handle different checkpoint formats
+            if isinstance(checkpoint, dict):
+                if 'model_state_dict' in checkpoint:
+                    network.load_state_dict(checkpoint['model_state_dict'])
+                elif 'state_dict' in checkpoint:
+                    network.load_state_dict(checkpoint['state_dict'])
+                else:
+                    network.load_state_dict(checkpoint)
+            else:
+                network.load_state_dict(checkpoint)
+        except RuntimeError as e:
+            if "Missing key(s)" in str(e) or "Unexpected key(s)" in str(e):
+                print("Warning: Checkpoint architecture mismatch (old model has different NUM_RES_BLOCKS)")
+                print("Using untrained network with current architecture.")
+            else:
+                raise
+    else:
+        print("Warning: No checkpoint found, using untrained network!")
+    
+    network.to(device)
+    network.eval()
+    
+    return AlphaZeroPlayer(
+        player=player, 
+        network=network, 
+        num_simulations=num_simulations,
+        temperature=temperature
+    )
 
 
 # --- SETUP ---
@@ -273,6 +360,67 @@ def draw_game_over(winner: int) -> pygame.Rect:
     return restart_rect
 
 
+def draw_difficulty_select() -> tuple[pygame.Rect, pygame.Rect, pygame.Rect, pygame.Rect]:
+    """Draw difficulty selection screen and return button rects."""
+    screen.fill(BG_COLOR)
+    
+    # Title
+    title = font.render("SELECT DIFFICULTY", True, TEXT_COLOR)
+    title_rect = title.get_rect(center=(SCREEN_WIDTH // 2, 150))
+    screen.blit(title, title_rect)
+    
+    mouse_pos = pygame.mouse.get_pos()
+    
+    # Difficulty buttons with colors
+    easy_rect = pygame.Rect(SCREEN_WIDTH // 2 - 120, 250, 240, 60)
+    medium_rect = pygame.Rect(SCREEN_WIDTH // 2 - 120, 340, 240, 60)
+    hard_rect = pygame.Rect(SCREEN_WIDTH // 2 - 120, 430, 240, 60)
+    back_rect = pygame.Rect(SCREEN_WIDTH // 2 - 120, 550, 240, 50)
+    
+    # Draw buttons with difficulty-specific colors
+    # Easy - Green tint
+    easy_color = (50, 120, 50) if easy_rect.collidepoint(mouse_pos) else (40, 90, 40)
+    pygame.draw.rect(screen, easy_color, easy_rect, border_radius=8)
+    pygame.draw.rect(screen, (100, 200, 100), easy_rect, 2, border_radius=8)
+    easy_text = font.render("Easy", True, (150, 255, 150))
+    screen.blit(easy_text, easy_text.get_rect(center=easy_rect.center))
+    
+    # Easy description
+    easy_desc = small_font.render("Casual play with randomness", True, (150, 200, 150))
+    screen.blit(easy_desc, easy_desc.get_rect(center=(SCREEN_WIDTH // 2, 295)))
+    
+    # Medium - Yellow/Orange tint
+    medium_color = (120, 100, 30) if medium_rect.collidepoint(mouse_pos) else (90, 75, 25)
+    pygame.draw.rect(screen, medium_color, medium_rect, border_radius=8)
+    pygame.draw.rect(screen, (200, 180, 80), medium_rect, 2, border_radius=8)
+    medium_text = font.render("Medium", True, (255, 220, 100))
+    screen.blit(medium_text, medium_text.get_rect(center=medium_rect.center))
+    
+    # Medium description
+    medium_desc = small_font.render("Balanced challenge", True, (200, 180, 100))
+    screen.blit(medium_desc, medium_desc.get_rect(center=(SCREEN_WIDTH // 2, 385)))
+    
+    # Hard - Red tint
+    hard_color = (120, 40, 40) if hard_rect.collidepoint(mouse_pos) else (90, 30, 30)
+    pygame.draw.rect(screen, hard_color, hard_rect, border_radius=8)
+    pygame.draw.rect(screen, (200, 80, 80), hard_rect, 2, border_radius=8)
+    hard_text = font.render("Hard", True, (255, 120, 120))
+    screen.blit(hard_text, hard_text.get_rect(center=hard_rect.center))
+    
+    # Hard description
+    hard_desc = small_font.render("Near-optimal play", True, (200, 120, 120))
+    screen.blit(hard_desc, hard_desc.get_rect(center=(SCREEN_WIDTH // 2, 475)))
+    
+    # Back button
+    draw_button("Back", back_rect, back_rect.collidepoint(mouse_pos))
+    
+    return easy_rect, medium_rect, hard_rect, back_rect
+
+
+# Game mode for difficulty selection
+MODE_DIFFICULTY = 'difficulty'
+
+
 # --- MAIN GAME LOOP ---
 
 def main():
@@ -280,6 +428,7 @@ def main():
     game_mode = MODE_MENU
     game_state = GameState()
     ai_player = None
+    selected_difficulty = 'medium'
     
     # UI state
     wall_mode = False
@@ -297,7 +446,9 @@ def main():
             
             if event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_ESCAPE:
-                    if game_mode in [MODE_PVP, MODE_PVE]:
+                    if game_mode == MODE_DIFFICULTY:
+                        game_mode = MODE_MENU
+                    elif game_mode in [MODE_PVP, MODE_PVE]:
                         game_mode = MODE_MENU
                         game_state = GameState()
                     else:
@@ -324,10 +475,31 @@ def main():
                         game_state = GameState()
                         valid_moves = game_state.get_valid_moves(game_state.current_player)
                     elif pve_rect.collidepoint(mouse_pos):
+                        game_mode = MODE_DIFFICULTY  # Go to difficulty selection
+                
+                # Difficulty selection
+                elif game_mode == MODE_DIFFICULTY:
+                    easy_rect, medium_rect, hard_rect, back_rect = draw_difficulty_select()
+                    if easy_rect.collidepoint(mouse_pos):
+                        selected_difficulty = 'easy'
                         game_mode = MODE_PVE
                         game_state = GameState()
-                        ai_player = AIPlayer(player=2)
+                        ai_player = load_ai_player(player=2, difficulty=selected_difficulty)
                         valid_moves = game_state.get_valid_moves(game_state.current_player)
+                    elif medium_rect.collidepoint(mouse_pos):
+                        selected_difficulty = 'medium'
+                        game_mode = MODE_PVE
+                        game_state = GameState()
+                        ai_player = load_ai_player(player=2, difficulty=selected_difficulty)
+                        valid_moves = game_state.get_valid_moves(game_state.current_player)
+                    elif hard_rect.collidepoint(mouse_pos):
+                        selected_difficulty = 'hard'
+                        game_mode = MODE_PVE
+                        game_state = GameState()
+                        ai_player = load_ai_player(player=2, difficulty=selected_difficulty)
+                        valid_moves = game_state.get_valid_moves(game_state.current_player)
+                    elif back_rect.collidepoint(mouse_pos):
+                        game_mode = MODE_MENU
                 
                 # Game over - restart
                 elif game_state.is_terminal():
@@ -373,6 +545,9 @@ def main():
         # --- RENDERING ---
         if game_mode == MODE_MENU:
             draw_menu()
+        
+        elif game_mode == MODE_DIFFICULTY:
+            draw_difficulty_select()
         
         elif game_mode in [MODE_PVP, MODE_PVE]:
             # Get wall preview if in wall mode

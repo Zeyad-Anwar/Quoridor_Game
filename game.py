@@ -49,8 +49,15 @@ class GameState:
     # Current player's turn
     current_player: Player = 1
     
+    # Move counter (increments each time a move is made)
+    move_count: int = 0
+    
     # Game over state
     winner: Optional[Player] = None
+    
+    # Caching for performance (not part of state equality)
+    _legal_actions_cache: Optional[list] = field(default=None, repr=False, compare=False)
+    _valid_walls_cache: Optional[list] = field(default=None, repr=False, compare=False)
     
     def clone(self) -> GameState:
         """Create a deep copy of the game state."""
@@ -61,8 +68,16 @@ class GameState:
             player2_walls=self.player2_walls,
             walls=set(self.walls),
             current_player=self.current_player,
-            winner=self.winner
+            move_count=self.move_count,
+            winner=self.winner,
+            _legal_actions_cache=None,  # Don't copy cache
+            _valid_walls_cache=None
         )
+    
+    def _invalidate_cache(self) -> None:
+        """Invalidate cached values after state change."""
+        self._legal_actions_cache = None
+        self._valid_walls_cache = None
     
     def get_player_pos(self, player: Player) -> Position:
         """Get position of specified player."""
@@ -97,34 +112,35 @@ class GameState:
         """
         from_row, from_col = from_pos
         to_row, to_col = to_pos
+        walls = self.walls  # Local reference for faster lookup
         
         # Moving vertically (up or down)
         if from_col == to_col:
-            # Moving down (from_row < to_row)
-            if from_row < to_row:
-                wall_row = from_row
-            else:  # Moving up
-                wall_row = to_row
+            # Determine which row the wall would be at
+            wall_row = min(from_row, to_row)
             
             # Check for horizontal walls that block this movement
             # A horizontal wall at (wall_row, c) blocks if c <= from_col <= c+1
-            for c in range(max(0, from_col - 1), min(GRID_COUNT - 1, from_col + 1)):
-                if ((wall_row, c), 'H') in self.walls:
-                    return True
+            c = from_col - 1
+            if c >= 0 and ((wall_row, c), 'H') in walls:
+                return True
+            c = from_col
+            if c < GRID_COUNT - 1 and ((wall_row, c), 'H') in walls:
+                return True
         
         # Moving horizontally (left or right)
-        elif from_row == to_row:
-            # Moving right (from_col < to_col)
-            if from_col < to_col:
-                wall_col = from_col
-            else:  # Moving left
-                wall_col = to_col
+        else:
+            # Determine which column the wall would be at
+            wall_col = min(from_col, to_col)
             
             # Check for vertical walls that block this movement
             # A vertical wall at (r, wall_col) blocks if r <= from_row <= r+1
-            for r in range(max(0, from_row - 1), min(GRID_COUNT - 1, from_row + 1)):
-                if ((r, wall_col), 'V') in self.walls:
-                    return True
+            r = from_row - 1
+            if r >= 0 and ((r, wall_col), 'V') in walls:
+                return True
+            r = from_row
+            if r < GRID_COUNT - 1 and ((r, wall_col), 'V') in walls:
+                return True
         
         return False
     
@@ -226,41 +242,113 @@ class GameState:
                 return False
         
         # Temporarily add wall and check if both players can still reach goals
-        test_state = self.clone()
-        test_state.walls.add(wall)
+        # Use in-place add/remove instead of clone for speed
+        self.walls.add(wall)
+        p1_can_reach = self._can_reach_goal(1)
+        p2_can_reach = self._can_reach_goal(2)
+        self.walls.remove(wall)
         
-        if not test_state._can_reach_goal(1) or not test_state._can_reach_goal(2):
-            return False
-        
-        return True
+        return p1_can_reach and p2_can_reach
     
     def _can_reach_goal(self, player: Player) -> bool:
         """
-        Check if player can reach their goal using BFS.
+        Check if player can reach their goal using optimized BFS.
         Player 1 needs to reach row 0, Player 2 needs to reach row 8.
+        Uses a simple array-based visited set for speed.
         """
         start = self.get_player_pos(player)
         goal_row = 0 if player == 1 else GRID_COUNT - 1
         
-        visited = {start}
-        queue = deque([start])
+        # Early termination: already at goal
+        if start[0] == goal_row:
+            return True
         
-        while queue:
-            current = queue.popleft()
+        # Use a flat array for visited (faster than set for small grids)
+        visited = [False] * (GRID_COUNT * GRID_COUNT)
+        start_idx = start[0] * GRID_COUNT + start[1]
+        visited[start_idx] = True
+        
+        # Use a list as queue (faster than deque for small sizes)
+        queue = [start]
+        queue_idx = 0
+        
+        walls = self.walls  # Local reference
+        
+        while queue_idx < len(queue):
+            curr_row, curr_col = queue[queue_idx]
+            queue_idx += 1
             
-            if current[0] == goal_row:
-                return True
+            # Check up
+            if curr_row > 0:
+                new_row = curr_row - 1
+                idx = new_row * GRID_COUNT + curr_col
+                if not visited[idx]:
+                    # Check wall blocking (moving up = horizontal wall at new_row)
+                    wall_row = new_row
+                    blocked = False
+                    if curr_col > 0 and ((wall_row, curr_col - 1), 'H') in walls:
+                        blocked = True
+                    elif curr_col < GRID_COUNT - 1 and ((wall_row, curr_col), 'H') in walls:
+                        blocked = True
+                    
+                    if not blocked:
+                        if new_row == goal_row:
+                            return True
+                        visited[idx] = True
+                        queue.append((new_row, curr_col))
             
-            # Check all adjacent positions (ignoring opponent for pathfinding)
-            for dr, dc in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
-                new_row, new_col = current[0] + dr, current[1] + dc
-                new_pos = (new_row, new_col)
-                
-                if (0 <= new_row < GRID_COUNT and 0 <= new_col < GRID_COUNT
-                    and new_pos not in visited
-                    and not self.is_wall_blocking(current, new_pos)):
-                    visited.add(new_pos)
-                    queue.append(new_pos)
+            # Check down
+            if curr_row < GRID_COUNT - 1:
+                new_row = curr_row + 1
+                idx = new_row * GRID_COUNT + curr_col
+                if not visited[idx]:
+                    # Check wall blocking (moving down = horizontal wall at curr_row)
+                    wall_row = curr_row
+                    blocked = False
+                    if curr_col > 0 and ((wall_row, curr_col - 1), 'H') in walls:
+                        blocked = True
+                    elif curr_col < GRID_COUNT - 1 and ((wall_row, curr_col), 'H') in walls:
+                        blocked = True
+                    
+                    if not blocked:
+                        if new_row == goal_row:
+                            return True
+                        visited[idx] = True
+                        queue.append((new_row, curr_col))
+            
+            # Check left
+            if curr_col > 0:
+                new_col = curr_col - 1
+                idx = curr_row * GRID_COUNT + new_col
+                if not visited[idx]:
+                    # Check wall blocking (moving left = vertical wall at new_col)
+                    wall_col = new_col
+                    blocked = False
+                    if curr_row > 0 and ((curr_row - 1, wall_col), 'V') in walls:
+                        blocked = True
+                    elif curr_row < GRID_COUNT - 1 and ((curr_row, wall_col), 'V') in walls:
+                        blocked = True
+                    
+                    if not blocked:
+                        visited[idx] = True
+                        queue.append((curr_row, new_col))
+            
+            # Check right
+            if curr_col < GRID_COUNT - 1:
+                new_col = curr_col + 1
+                idx = curr_row * GRID_COUNT + new_col
+                if not visited[idx]:
+                    # Check wall blocking (moving right = vertical wall at curr_col)
+                    wall_col = curr_col
+                    blocked = False
+                    if curr_row > 0 and ((curr_row - 1, wall_col), 'V') in walls:
+                        blocked = True
+                    elif curr_row < GRID_COUNT - 1 and ((curr_row, wall_col), 'V') in walls:
+                        blocked = True
+                    
+                    if not blocked:
+                        visited[idx] = True
+                        queue.append((curr_row, new_col))
         
         return False
     
@@ -268,6 +356,10 @@ class GameState:
         """Get all valid wall placements for current player."""
         if self.get_walls_remaining(self.current_player) <= 0:
             return []
+        
+        # Return cached result if available
+        if self._valid_walls_cache is not None:
+            return self._valid_walls_cache
         
         valid_walls = []
         for row in range(GRID_COUNT - 1):
@@ -277,6 +369,7 @@ class GameState:
                     if self.is_valid_wall_placement(wall):
                         valid_walls.append(wall)
         
+        self._valid_walls_cache = valid_walls
         return valid_walls
     
     def get_legal_actions(self) -> list[tuple[str, Position | Wall]]:
@@ -284,6 +377,10 @@ class GameState:
         Get all legal actions for current player.
         Returns list of ('move', position) or ('wall', wall) tuples.
         """
+        # Return cached result if available
+        if self._legal_actions_cache is not None:
+            return self._legal_actions_cache
+        
         actions = []
         
         # Add all valid moves
@@ -294,6 +391,7 @@ class GameState:
         for wall in self.get_all_valid_walls():
             actions.append(('wall', wall))
         
+        self._legal_actions_cache = actions
         return actions
     
     def apply_action(self, action: tuple[str, Position | Wall]) -> None:
@@ -305,6 +403,12 @@ class GameState:
         elif action_type == 'wall':
             self.walls.add(data)
             self.use_wall(self.current_player)
+        
+        # Increment move counter
+        self.move_count += 1
+        
+        # Invalidate cache after state change
+        self._invalidate_cache()
         
         # Check for winner
         self._check_winner()
@@ -341,7 +445,8 @@ class GameState:
             self.player1_walls,
             self.player2_walls,
             frozenset(self.walls),
-            self.current_player
+            self.current_player,
+            self.move_count
         ))
     
     def __eq__(self, other: object) -> bool:
@@ -352,6 +457,8 @@ class GameState:
             and self.player2_pos == other.player2_pos
             and self.player1_walls == other.player1_walls
             and self.player2_walls == other.player2_walls
+            and self.current_player == other.current_player
+            and self.move_count == other.move_count
             and self.walls == other.walls
             and self.current_player == other.current_player
         )

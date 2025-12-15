@@ -98,7 +98,7 @@ def get_legal_action_mask(game_state: 'GameState') -> np.ndarray:
     """
     mask = np.zeros(ACTION_SPACE_SIZE, dtype=np.bool_)
     
-    # Get legal actions from game state
+    # Get legal actions from game state (uses cache if available)
     legal_actions = game_state.get_legal_actions()
     
     for action in legal_actions:
@@ -106,6 +106,27 @@ def get_legal_action_mask(game_state: 'GameState') -> np.ndarray:
         mask[idx] = True
     
     return mask
+
+
+def get_legal_action_mask_and_actions(game_state: 'GameState') -> tuple[np.ndarray, list]:
+    """
+    Get both the legal action mask and the list of legal actions.
+    More efficient than calling both functions separately.
+    
+    Args:
+        game_state: Current game state
+    
+    Returns:
+        Tuple of (mask, legal_actions)
+    """
+    mask = np.zeros(ACTION_SPACE_SIZE, dtype=np.bool_)
+    legal_actions = game_state.get_legal_actions()
+    
+    for action in legal_actions:
+        idx = action_to_index(action)
+        mask[idx] = True
+    
+    return mask, legal_actions
 
 
 def get_legal_action_indices(game_state: 'GameState') -> list[int]:

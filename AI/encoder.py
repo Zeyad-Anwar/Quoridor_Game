@@ -2,7 +2,7 @@
 State Encoding for AlphaZero Neural Network
 Converts GameState to tensor representation.
 
-Input Planes (7 channels, each 9x9):
+Input Planes (8 channels, each 9x9):
 - Plane 0: Player 1 position (one-hot)
 - Plane 1: Player 2 position (one-hot)
 - Plane 2: Horizontal walls (8x8 padded to 9x9)
@@ -10,6 +10,7 @@ Input Planes (7 channels, each 9x9):
 - Plane 4: Current player (all 1s if player 1, all 0s if player 2)
 - Plane 5: Player 1 walls remaining (normalized, broadcast)
 - Plane 6: Player 2 walls remaining (normalized, broadcast)
+- Plane 7: Move number (normalized by 200, broadcast)
 """
 from __future__ import annotations
 import numpy as np
@@ -69,6 +70,10 @@ def encode_state(game_state: 'GameState') -> np.ndarray:
     # Plane 6: Player 2 walls remaining (normalized to [0, 1])
     p2_walls_norm = game_state.player2_walls / 10.0
     planes[6, :, :] = p2_walls_norm
+    
+    # Plane 7: Move number (normalized by 200 max moves, clamped to [0, 1])
+    move_norm = min(game_state.move_count / 200.0, 1.0)
+    planes[7, :, :] = move_norm
     
     return planes
 
@@ -139,7 +144,8 @@ def visualize_planes(planes: np.ndarray) -> str:
         "Vertical Walls",
         "Current Player",
         "P1 Walls Remaining",
-        "P2 Walls Remaining"
+        "P2 Walls Remaining",
+        "Move Number"
     ]
     
     for i, name in enumerate(plane_names):
