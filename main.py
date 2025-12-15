@@ -1,9 +1,13 @@
-
+"""
+Quoridor Game - Main Entry Point
+A strategic board game with pygame implementation.
+"""
 from constants import *
 from game import GameState, Wall, Position
 from AI.mcts import AIPlayer
 import pygame
 import sys
+
 
 # --- SETUP ---
 pygame.init()
@@ -16,6 +20,7 @@ small_font = pygame.font.Font(None, 28)
 # Load Assets
 raw_tile_img = pygame.image.load('assets/tile.png')
 tile_img = pygame.transform.scale(raw_tile_img, (TILE_SIZE, TILE_SIZE))
+
 
 # --- HELPER FUNCTIONS ---
 
@@ -124,6 +129,7 @@ def draw_button(text: str, rect: pygame.Rect, hover: bool = False) -> None:
     text_surf = font.render(text, True, TEXT_COLOR)
     text_rect = text_surf.get_rect(center=rect.center)
     screen.blit(text_surf, text_rect)
+
 
 # --- GAME RENDERING ---
 
@@ -267,58 +273,129 @@ def draw_game_over(winner: int) -> pygame.Rect:
     return restart_rect
 
 
-def draw_difficulty_select() -> tuple[pygame.Rect, pygame.Rect, pygame.Rect, pygame.Rect]:
-    """Draw difficulty selection screen and return button rects."""
-    screen.fill(BG_COLOR)
+# --- MAIN GAME LOOP ---
+
+def main():
+    """Main game loop."""
+    game_mode = MODE_MENU
+    game_state = GameState()
+    ai_player = None
     
-    # Title
-    title = font.render("SELECT DIFFICULTY", True, TEXT_COLOR)
-    title_rect = title.get_rect(center=(SCREEN_WIDTH // 2, 150))
-    screen.blit(title, title_rect)
+    # UI state
+    wall_mode = False
+    wall_orientation = 'H'
+    valid_moves = []
     
-    mouse_pos = pygame.mouse.get_pos()
+    running = True
+    while running:
+        mouse_pos = pygame.mouse.get_pos()
+        
+        # --- EVENT HANDLING ---
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                running = False
+            
+            if event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_ESCAPE:
+                    if game_mode in [MODE_PVP, MODE_PVE]:
+                        game_mode = MODE_MENU
+                        game_state = GameState()
+                    else:
+                        running = False
+                
+                if game_mode in [MODE_PVP, MODE_PVE] and not game_state.is_terminal():
+                    # Don't allow input during AI turn
+                    if game_mode == MODE_PVE and game_state.current_player == 2:
+                        continue
+                    
+                    if event.key == pygame.K_w:
+                        wall_mode = not wall_mode
+                        valid_moves = [] if wall_mode else game_state.get_valid_moves(game_state.current_player)
+                    
+                    if event.key == pygame.K_r and wall_mode:
+                        wall_orientation = 'V' if wall_orientation == 'H' else 'H'
+            
+            if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                # Menu
+                if game_mode == MODE_MENU:
+                    pvp_rect, pve_rect = draw_menu()
+                    if pvp_rect.collidepoint(mouse_pos):
+                        game_mode = MODE_PVP
+                        game_state = GameState()
+                        valid_moves = game_state.get_valid_moves(game_state.current_player)
+                    elif pve_rect.collidepoint(mouse_pos):
+                        game_mode = MODE_PVE
+                        game_state = GameState()
+                        ai_player = AIPlayer(player=2)
+                        valid_moves = game_state.get_valid_moves(game_state.current_player)
+                
+                # Game over - restart
+                elif game_state.is_terminal():
+                    restart_rect = draw_game_over(game_state.winner)
+                    if restart_rect.collidepoint(mouse_pos):
+                        game_mode = MODE_MENU
+                        game_state = GameState()
+                
+                # In-game actions
+                elif game_mode in [MODE_PVP, MODE_PVE]:
+                    # Don't allow input during AI turn
+                    if game_mode == MODE_PVE and game_state.current_player == 2:
+                        continue
+                    
+                    if wall_mode:
+                        # Wall placement
+                        wall = get_wall_at_mouse(mouse_pos, wall_orientation)
+                        if wall and game_state.is_valid_wall_placement(wall):
+                            game_state.apply_action(('wall', wall))
+                            wall_mode = False
+                            valid_moves = game_state.get_valid_moves(game_state.current_player)
+                    else:
+                        # Pawn movement
+                        clicked_tile = get_tile_at_mouse(mouse_pos)
+                        if clicked_tile and clicked_tile in valid_moves:
+                            game_state.apply_action(('move', clicked_tile))
+                            valid_moves = game_state.get_valid_moves(game_state.current_player)
+        
+        # --- AI TURN ---
+        if (game_mode == MODE_PVE and game_state.current_player == 2 
+            and not game_state.is_terminal()):
+            # Draw current state first
+            draw_board(game_state, [], None, True)
+            draw_ui(game_state, game_mode, wall_mode, wall_orientation)
+            pygame.display.flip()
+            
+            # Get AI move
+            action = ai_player.get_action(game_state)
+            if action:
+                game_state.apply_action(action)
+                valid_moves = game_state.get_valid_moves(game_state.current_player)
+        
+        # --- RENDERING ---
+        if game_mode == MODE_MENU:
+            draw_menu()
+        
+        elif game_mode in [MODE_PVP, MODE_PVE]:
+            # Get wall preview if in wall mode
+            wall_preview = None
+            wall_valid = True
+            if wall_mode and not game_state.is_terminal():
+                if not (game_mode == MODE_PVE and game_state.current_player == 2):
+                    wall_preview = get_wall_at_mouse(mouse_pos, wall_orientation)
+                    if wall_preview:
+                        wall_valid = game_state.is_valid_wall_placement(wall_preview)
+            
+            draw_board(game_state, valid_moves if not wall_mode else [], wall_preview, wall_valid)
+            draw_ui(game_state, game_mode, wall_mode, wall_orientation)
+            
+            if game_state.is_terminal():
+                draw_game_over(game_state.winner)
+        
+        pygame.display.flip()
+        clock.tick(FPS)
     
-    # Difficulty buttons with colors
-    easy_rect = pygame.Rect(SCREEN_WIDTH // 2 - 120, 250, 240, 60)
-    medium_rect = pygame.Rect(SCREEN_WIDTH // 2 - 120, 340, 240, 60)
-    hard_rect = pygame.Rect(SCREEN_WIDTH // 2 - 120, 430, 240, 60)
-    back_rect = pygame.Rect(SCREEN_WIDTH // 2 - 120, 550, 240, 50)
-    
-    # Draw buttons with difficulty-specific colors
-    # Easy - Green tint
-    easy_color = (50, 120, 50) if easy_rect.collidepoint(mouse_pos) else (40, 90, 40)
-    pygame.draw.rect(screen, easy_color, easy_rect, border_radius=8)
-    pygame.draw.rect(screen, (100, 200, 100), easy_rect, 2, border_radius=8)
-    easy_text = font.render("Easy", True, (150, 255, 150))
-    screen.blit(easy_text, easy_text.get_rect(center=easy_rect.center))
-    
-    # Easy description
-    easy_desc = small_font.render("Casual play with randomness", True, (150, 200, 150))
-    screen.blit(easy_desc, easy_desc.get_rect(center=(SCREEN_WIDTH // 2, 295)))
-    
-    # Medium - Yellow/Orange tint
-    medium_color = (120, 100, 30) if medium_rect.collidepoint(mouse_pos) else (90, 75, 25)
-    pygame.draw.rect(screen, medium_color, medium_rect, border_radius=8)
-    pygame.draw.rect(screen, (200, 180, 80), medium_rect, 2, border_radius=8)
-    medium_text = font.render("Medium", True, (255, 220, 100))
-    screen.blit(medium_text, medium_text.get_rect(center=medium_rect.center))
-    
-    # Medium description
-    medium_desc = small_font.render("Balanced challenge", True, (200, 180, 100))
-    screen.blit(medium_desc, medium_desc.get_rect(center=(SCREEN_WIDTH // 2, 385)))
-    
-    # Hard - Red tint
-    hard_color = (120, 40, 40) if hard_rect.collidepoint(mouse_pos) else (90, 30, 30)
-    pygame.draw.rect(screen, hard_color, hard_rect, border_radius=8)
-    pygame.draw.rect(screen, (200, 80, 80), hard_rect, 2, border_radius=8)
-    hard_text = font.render("Hard", True, (255, 120, 120))
-    screen.blit(hard_text, hard_text.get_rect(center=hard_rect.center))
-    
-    # Hard description
-    hard_desc = small_font.render("Near-optimal play", True, (200, 120, 120))
-    screen.blit(hard_desc, hard_desc.get_rect(center=(SCREEN_WIDTH // 2, 475)))
-    
-    # Back button
-    draw_button("Back", back_rect, back_rect.collidepoint(mouse_pos))
-    
-    return easy_rect, medium_rect, hard_rect, back_rect
+    pygame.quit()
+    sys.exit()
+
+
+if __name__ == "__main__":
+    main()
