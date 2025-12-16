@@ -10,6 +10,7 @@ import sys
 from constants import *
 from game import GameState, Wall, Position
 from AI.alpha_mcts import AlphaZeroPlayer
+from AI.alpha_beta import AlphaBetaConfig, AlphaBetaPlayer
 from AI.network import QuoridorNet
 
 
@@ -40,18 +41,32 @@ def get_latest_checkpoint() -> str | None:
     return os.path.join(CHECKPOINT_DIR, checkpoints[0])
 
 
-def load_ai_player(player: int, difficulty: str = 'medium') -> AlphaZeroPlayer:
-    """Load the AI player with the trained neural network model.
+def load_ai_player(player: int, difficulty: str = 'medium'):
+    """Load the AI player for PVE.
     
     Args:
         player: Player number (1 or 2)
         difficulty: Difficulty level ('easy', 'medium', 'hard')
     """
-    # Get difficulty settings
     if difficulty not in DIFFICULTY_PRESETS:
         print(f"Unknown difficulty '{difficulty}', using 'medium'")
         difficulty = 'medium'
-    
+
+    # Allow swapping the gameplay opponent without touching the UI.
+    if PVE_AI_AGENT == "alphabeta":
+        depth = {
+            "easy": PVE_ALPHABETA_DEPTH_EASY,
+            "medium": PVE_ALPHABETA_DEPTH_MEDIUM,
+            "hard": PVE_ALPHABETA_DEPTH_HARD,
+        }[difficulty]
+        print(f"Using AlphaBeta AI (depth={depth})")
+        return AlphaBetaPlayer(
+            player=player,
+            cfg=AlphaBetaConfig(depth=depth),
+            temperature=0.0,
+        )
+
+    # Default: MCTS + neural network
     settings = DIFFICULTY_PRESETS[difficulty]
     num_simulations = settings['num_simulations']
     temperature = settings['temperature']
