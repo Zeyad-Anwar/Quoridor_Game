@@ -1,28 +1,40 @@
 # --- CONFIGURATION ---
-SCREEN_WIDTH = 800
-SCREEN_HEIGHT = 800
-BG_COLOR = (45, 30, 15)  # Dark Brown (This acts as the color of the GROOVES)
+SCREEN_WIDTH = 1400
+SCREEN_HEIGHT = 1450
+BG_COLOR = (25, 20, 15)  # Darker, richer brown
 
 # Grid Settings
 MARGIN_X = 50
 MARGIN_Y = 50
-TILE_SIZE = 65  # The size of the image on screen
+TILE_SIZE = 130  # The size of the image on screen
 GAP_SIZE = 15  # The space between tiles (for walls)
 GRID_COUNT = 9
 
-# Colors
-PLAYER1_COLOR = (220, 50, 50)  # Red
-PLAYER2_COLOR = (50, 50, 220)  # Blue
-WALL_COLOR = (139, 90, 43)  # Brown wood color
-WALL_PREVIEW_COLOR = (200, 180, 140)  # Light tan for preview
-WALL_INVALID_COLOR = (200, 50, 50)  # Red for invalid placement
-HIGHLIGHT_COLOR = (0, 255, 0)  # Green for valid moves
-BUTTON_COLOR = (70, 50, 30)  # Dark brown for buttons
-BUTTON_HOVER_COLOR = (100, 70, 45)
-TEXT_COLOR = (255, 255, 255)  # White
+# Colors - Enhanced palette
+PLAYER1_COLOR = (231, 76, 60)  # Modern red
+PLAYER1_GLOW = (255, 120, 100)  # Light red glow
+PLAYER2_COLOR = (52, 152, 219)  # Modern blue
+PLAYER2_GLOW = (100, 180, 255)  # Light blue glow
+WALL_COLOR = (160, 100, 50)  # Warmer brown wood color
+WALL_HIGHLIGHT = (200, 140, 80)  # Wall highlight
+WALL_PREVIEW_COLOR = (180, 160, 120)  # Light tan for preview
+WALL_INVALID_COLOR = (220, 60, 60)  # Red for invalid placement
+HIGHLIGHT_COLOR = (46, 204, 113)  # Modern green for valid moves
+HIGHLIGHT_PULSE = (100, 230, 150)  # Brighter green for pulse effect
+
+# UI Colors - Modern dark theme
+BUTTON_COLOR = (50, 45, 40)  # Dark charcoal
+BUTTON_HOVER_COLOR = (70, 65, 55)  # Lighter on hover
+BUTTON_BORDER = (120, 100, 80)  # Warm border
+BUTTON_GLOW = (180, 150, 100)  # Golden glow on hover
+TEXT_COLOR = (245, 245, 245)  # Off-white
+TEXT_SECONDARY = (180, 175, 165)  # Muted text
+ACCENT_COLOR = (218, 165, 32)  # Golden accent
+PANEL_COLOR = (35, 30, 25)  # Panel background
+PANEL_BORDER = (80, 70, 55)  # Panel border
 
 # Game Settings
-PAWN_RADIUS = 25
+PAWN_RADIUS = 40
 WALL_THICKNESS = 10
 FPS = 60
 
@@ -30,6 +42,10 @@ FPS = 60
 MODE_MENU = "menu"
 MODE_PVP = "pvp"
 MODE_PVE = "pve"
+MODE_LOAD = "load"
+
+# Save/Load Settings
+SAVES_DIR = "saves"
 
 # --- GAMEPLAY (Human vs AI) ---
 # Which agent to use for Player-vs-AI in the pygame UI.
