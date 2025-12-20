@@ -16,7 +16,7 @@ This project supports:
 | ![Menu](docs/screenshots/menu.png) | ![Gameplay](docs/screenshots/gameplay.png) |
 
 | Wall Placement |
-| --- | --- |
+| --- |
 | ![Wall placement](docs/screenshots/wall-placement.png) |
 
 ## Installation
