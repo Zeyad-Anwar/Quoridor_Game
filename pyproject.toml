@@ -21,3 +21,24 @@ distributed = [
     "ray[default]>=2.9.0",
     "lightning-sdk>=2025.12.9",
 ]
+build = [
+    "pyinstaller>=6.0.0",
+]
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+# Explicitly define which packages to include
+packages = ["AI"]
+
+# Define Python modules in the root directory
+py-modules = ["constants", "game", "main"]
+
+[tool.setuptools.package-data]
+"*" = ["*.txt", "*.md"]
+
+# Exclude non-package directories
+[tool.setuptools.exclude-package-data]
+"*" = ["runs", "checkpoints", "assets", "quoridor_ai", "docs", "scripts", "__pycache__"]
