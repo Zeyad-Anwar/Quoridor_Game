@@ -1,14 +1,34 @@
 # --- CONFIGURATION ---
-SCREEN_WIDTH = 1400
-SCREEN_HEIGHT = 1450
+# Default/initial window dimensions
+DEFAULT_SCREEN_WIDTH = 1400
+DEFAULT_SCREEN_HEIGHT = 1450
+
+# Minimum window dimensions (enforced)
+MIN_SCREEN_WIDTH = 800
+MIN_SCREEN_HEIGHT = 800
+
+# Legacy constants for backwards compatibility (use LayoutManager for dynamic values)
+SCREEN_WIDTH = DEFAULT_SCREEN_WIDTH
+SCREEN_HEIGHT = DEFAULT_SCREEN_HEIGHT
+
 BG_COLOR = (25, 20, 15)  # Darker, richer brown
 
-# Grid Settings
-MARGIN_X = 50
-MARGIN_Y = 50
-TILE_SIZE = 130  # The size of the image on screen
-GAP_SIZE = 15  # The space between tiles (for walls)
-GRID_COUNT = 9
+# Grid Settings (fixed game rules)
+GRID_COUNT = 9  # Fixed: 9x9 board is standard Quoridor
+
+# Default layout values (will be dynamically calculated by LayoutManager)
+DEFAULT_MARGIN_X = 50
+DEFAULT_MARGIN_Y = 50
+DEFAULT_TILE_SIZE = 130  # The size of the image on screen
+DEFAULT_GAP_SIZE = 15  # The space between tiles (for walls)
+DEFAULT_PAWN_RADIUS = 40
+DEFAULT_WALL_THICKNESS = 10
+
+# Legacy constants for backwards compatibility
+MARGIN_X = DEFAULT_MARGIN_X
+MARGIN_Y = DEFAULT_MARGIN_Y
+TILE_SIZE = DEFAULT_TILE_SIZE
+GAP_SIZE = DEFAULT_GAP_SIZE
 
 # Colors - Enhanced palette
 PLAYER1_COLOR = (231, 76, 60)  # Modern red
@@ -34,8 +54,8 @@ PANEL_COLOR = (35, 30, 25)  # Panel background
 PANEL_BORDER = (80, 70, 55)  # Panel border
 
 # Game Settings
-PAWN_RADIUS = 40
-WALL_THICKNESS = 10
+PAWN_RADIUS = DEFAULT_PAWN_RADIUS
+WALL_THICKNESS = DEFAULT_WALL_THICKNESS
 FPS = 60
 
 # Game Modes

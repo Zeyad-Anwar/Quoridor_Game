@@ -11,6 +11,100 @@ from game import GameState, Wall, Position, save_game, load_game, get_save_files
 from AI.alpha_beta import AlphaBetaConfig, AlphaBetaPlayer
 
 
+# --- LAYOUT MANAGER ---
+
+class LayoutManager:
+    """Manages dynamic layout calculations based on window size."""
+    
+    def __init__(self, screen_width: int, screen_height: int):
+        self.update(screen_width, screen_height)
+    
+    def update(self, screen_width: int, screen_height: int) -> None:
+        """Recalculate all layout values based on new screen dimensions."""
+        # Enforce minimum window size
+        self.screen_width = max(screen_width, MIN_SCREEN_WIDTH)
+        self.screen_height = max(screen_height, MIN_SCREEN_HEIGHT)
+        
+        # Calculate the available space for the board
+        # Reserve space for UI elements (top: 60px, bottom: 120px, sides: 20px each)
+        ui_top_margin = 60
+        ui_bottom_margin = 120
+        ui_side_margin = 20
+        
+        available_width = self.screen_width - (ui_side_margin * 2)
+        available_height = self.screen_height - ui_top_margin - ui_bottom_margin
+        
+        # The board is square, so use the smaller dimension
+        available_board_size = min(available_width, available_height)
+        
+        # Calculate tile size based on available space
+        # Board = GRID_COUNT * TILE_SIZE + (GRID_COUNT - 1) * GAP_SIZE
+        # GAP_SIZE is typically ~11.5% of TILE_SIZE
+        # So: Board ≈ GRID_COUNT * TILE_SIZE + (GRID_COUNT - 1) * 0.115 * TILE_SIZE
+        # Board ≈ TILE_SIZE * (GRID_COUNT + (GRID_COUNT - 1) * 0.115)
+        # Board ≈ TILE_SIZE * (9 + 8 * 0.115) = TILE_SIZE * 9.92
+        
+        gap_ratio = 0.115  # Gap is 11.5% of tile size
+        total_units = GRID_COUNT + (GRID_COUNT - 1) * gap_ratio
+        
+        self.tile_size = int(available_board_size / total_units)
+        self.gap_size = max(4, int(self.tile_size * gap_ratio))  # Minimum gap of 4px
+        
+        # Recalculate actual board size
+        self.board_size = GRID_COUNT * self.tile_size + (GRID_COUNT - 1) * self.gap_size
+        
+        # Center the board horizontally, offset from top for UI
+        self.margin_x = (self.screen_width - self.board_size) // 2
+        self.margin_y = ui_top_margin + (available_height - self.board_size) // 2
+        
+        # Scale other game elements proportionally
+        # Base reference: TILE_SIZE=130 -> PAWN_RADIUS=40, WALL_THICKNESS=10
+        scale_factor = self.tile_size / 130.0
+        
+        self.pawn_radius = max(15, int(40 * scale_factor))
+        self.wall_thickness = max(4, int(10 * scale_factor))
+        
+        # Font sizes based on screen height
+        font_scale = self.screen_height / DEFAULT_SCREEN_HEIGHT
+        self.title_font_size = max(48, int(96 * font_scale))
+        self.large_font_size = max(36, int(72 * font_scale))
+        self.font_size = max(18, int(36 * font_scale))
+        self.small_font_size = max(14, int(28 * font_scale))
+        self.tiny_font_size = max(12, int(22 * font_scale))
+        
+        # UI element sizes based on screen dimensions
+        self.button_height = max(35, int(55 * font_scale))
+        self.panel_padding = max(5, int(10 * font_scale))
+
+
+# Global layout manager instance
+layout = LayoutManager(DEFAULT_SCREEN_WIDTH, DEFAULT_SCREEN_HEIGHT)
+
+# Global fonts (will be recreated on resize)
+title_font = None
+large_font = None
+font = None
+small_font = None
+tiny_font = None
+
+
+def create_fonts():
+    """Create fonts based on current layout sizes."""
+    global title_font, large_font, font, small_font, tiny_font
+    try:
+        title_font = pygame.font.Font(None, layout.title_font_size)
+        large_font = pygame.font.Font(None, layout.large_font_size)
+        font = pygame.font.Font(None, layout.font_size)
+        small_font = pygame.font.Font(None, layout.small_font_size)
+        tiny_font = pygame.font.Font(None, layout.tiny_font_size)
+    except:
+        title_font = pygame.font.SysFont('arial', int(layout.title_font_size * 0.75))
+        large_font = pygame.font.SysFont('arial', int(layout.large_font_size * 0.75))
+        font = pygame.font.SysFont('arial', int(layout.font_size * 0.75))
+        small_font = pygame.font.SysFont('arial', int(layout.small_font_size * 0.75))
+        tiny_font = pygame.font.SysFont('arial', int(layout.tiny_font_size * 0.75))
+
+
 # --- AI MODEL LOADING ---
 
 CHECKPOINT_DIR = "checkpoints"
@@ -110,27 +204,46 @@ def load_ai_player(player: int, difficulty: str = 'medium'):
 
 # --- SETUP ---
 pygame.init()
-screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
+screen = pygame.display.set_mode(
+    (DEFAULT_SCREEN_WIDTH, DEFAULT_SCREEN_HEIGHT), 
+    pygame.RESIZABLE
+)
 pygame.display.set_caption("Quoridor")
 clock = pygame.time.Clock()
 
-# Fonts - Modern font setup
-try:
-    title_font = pygame.font.Font(None, 96)  # Larger title
-    large_font = pygame.font.Font(None, 72)
-    font = pygame.font.Font(None, 36)
-    small_font = pygame.font.Font(None, 28)
-    tiny_font = pygame.font.Font(None, 22)
-except:
-    title_font = pygame.font.SysFont('arial', 72)
-    large_font = pygame.font.SysFont('arial', 54)
-    font = pygame.font.SysFont('arial', 28)
-    small_font = pygame.font.SysFont('arial', 22)
-    tiny_font = pygame.font.SysFont('arial', 18)
+# Initialize fonts
+create_fonts()
 
-# Load Assets
+# Load Assets - Keep raw image for rescaling
 raw_tile_img = pygame.image.load('assets/tile.png')
-tile_img = pygame.transform.scale(raw_tile_img, (TILE_SIZE, TILE_SIZE))
+tile_img = pygame.transform.scale(raw_tile_img, (layout.tile_size, layout.tile_size))
+
+
+def rescale_assets():
+    """Rescale game assets based on current layout."""
+    global tile_img
+    tile_img = pygame.transform.scale(raw_tile_img, (layout.tile_size, layout.tile_size))
+
+
+def handle_resize(new_width: int, new_height: int) -> pygame.Surface:
+    """Handle window resize event and return the new screen surface."""
+    global screen
+    
+    # Enforce minimum size
+    new_width = max(new_width, MIN_SCREEN_WIDTH)
+    new_height = max(new_height, MIN_SCREEN_HEIGHT)
+    
+    # Update layout calculations
+    layout.update(new_width, new_height)
+    
+    # Recreate screen with new size
+    screen = pygame.display.set_mode((new_width, new_height), pygame.RESIZABLE)
+    
+    # Rescale assets and recreate fonts
+    rescale_assets()
+    create_fonts()
+    
+    return screen
 
 # Animation state
 animation_tick = 0
@@ -180,24 +293,24 @@ def draw_shadow(rect: pygame.Rect, offset: int = 4, alpha: int = 60) -> None:
 
 def get_tile_center(row: int, col: int) -> tuple[int, int]:
     """Get the pixel center of a tile at (row, col)."""
-    x = MARGIN_X + (col * (TILE_SIZE + GAP_SIZE)) + TILE_SIZE // 2
-    y = MARGIN_Y + (row * (TILE_SIZE + GAP_SIZE)) + TILE_SIZE // 2
+    x = layout.margin_x + (col * (layout.tile_size + layout.gap_size)) + layout.tile_size // 2
+    y = layout.margin_y + (row * (layout.tile_size + layout.gap_size)) + layout.tile_size // 2
     return (x, y)
 
 
 def get_tile_topleft(row: int, col: int) -> tuple[int, int]:
     """Get the top-left pixel position of a tile at (row, col)."""
-    x = MARGIN_X + (col * (TILE_SIZE + GAP_SIZE))
-    y = MARGIN_Y + (row * (TILE_SIZE + GAP_SIZE))
+    x = layout.margin_x + (col * (layout.tile_size + layout.gap_size))
+    y = layout.margin_y + (row * (layout.tile_size + layout.gap_size))
     return (x, y)
 
 
 def get_tile_at_mouse(mouse_pos: tuple[int, int]) -> Position | None:
     """Get tile coordinates from mouse position, or None if not on a tile."""
     x, y = mouse_pos
-    grid_x = x - MARGIN_X
-    grid_y = y - MARGIN_Y
-    cell_size = TILE_SIZE + GAP_SIZE
+    grid_x = x - layout.margin_x
+    grid_y = y - layout.margin_y
+    cell_size = layout.tile_size + layout.gap_size
     
     col = grid_x // cell_size
     row = grid_y // cell_size
@@ -205,7 +318,7 @@ def get_tile_at_mouse(mouse_pos: tuple[int, int]) -> Position | None:
     relative_x = grid_x % cell_size
     relative_y = grid_y % cell_size
     
-    if relative_x > TILE_SIZE or relative_y > TILE_SIZE:
+    if relative_x > layout.tile_size or relative_y > layout.tile_size:
         return None
     
     if 0 <= row < GRID_COUNT and 0 <= col < GRID_COUNT:
@@ -220,9 +333,9 @@ def get_wall_at_mouse(mouse_pos: tuple[int, int], wall_orientation: str) -> Wall
     Returns a Wall tuple or None if not valid.
     """
     x, y = mouse_pos
-    grid_x = x - MARGIN_X
-    grid_y = y - MARGIN_Y
-    cell_size = TILE_SIZE + GAP_SIZE
+    grid_x = x - layout.margin_x
+    grid_y = y - layout.margin_y
+    cell_size = layout.tile_size + layout.gap_size
     
     # Calculate which cell intersection we're near
     col = grid_x // cell_size
@@ -233,8 +346,8 @@ def get_wall_at_mouse(mouse_pos: tuple[int, int], wall_orientation: str) -> Wall
     relative_y = grid_y % cell_size
     
     # Determine if we're in a gap area
-    in_horizontal_gap = relative_y > TILE_SIZE
-    in_vertical_gap = relative_x > TILE_SIZE
+    in_horizontal_gap = relative_y > layout.tile_size
+    in_vertical_gap = relative_x > layout.tile_size
     
     # For horizontal walls, check if we're in the horizontal gap between rows
     if wall_orientation == 'H':
@@ -260,16 +373,16 @@ def get_wall_rect(wall: Wall) -> pygame.Rect:
     
     if orientation == 'H':
         # Horizontal wall: spans gap between row and row+1, covers 2 tiles + gap
-        x = MARGIN_X + col * (TILE_SIZE + GAP_SIZE)
-        y = MARGIN_Y + row * (TILE_SIZE + GAP_SIZE) + TILE_SIZE + (GAP_SIZE - WALL_THICKNESS) // 2
-        width = 2 * TILE_SIZE + GAP_SIZE
-        height = WALL_THICKNESS
+        x = layout.margin_x + col * (layout.tile_size + layout.gap_size)
+        y = layout.margin_y + row * (layout.tile_size + layout.gap_size) + layout.tile_size + (layout.gap_size - layout.wall_thickness) // 2
+        width = 2 * layout.tile_size + layout.gap_size
+        height = layout.wall_thickness
     else:  # Vertical
         # Vertical wall: spans gap between col and col+1, covers 2 tiles + gap
-        x = MARGIN_X + col * (TILE_SIZE + GAP_SIZE) + TILE_SIZE + (GAP_SIZE - WALL_THICKNESS) // 2
-        y = MARGIN_Y + row * (TILE_SIZE + GAP_SIZE)
-        width = WALL_THICKNESS
-        height = 2 * TILE_SIZE + GAP_SIZE
+        x = layout.margin_x + col * (layout.tile_size + layout.gap_size) + layout.tile_size + (layout.gap_size - layout.wall_thickness) // 2
+        y = layout.margin_y + row * (layout.tile_size + layout.gap_size)
+        width = layout.wall_thickness
+        height = 2 * layout.tile_size + layout.gap_size
     
     return pygame.Rect(x, y, width, height)
 
@@ -364,8 +477,8 @@ def draw_board(game_state: GameState, valid_moves: list[Position],
     screen.fill(BG_COLOR)
     
     # Draw board frame/border
-    board_width = GRID_COUNT * TILE_SIZE + (GRID_COUNT - 1) * GAP_SIZE
-    board_rect = pygame.Rect(MARGIN_X - 10, MARGIN_Y - 10, board_width + 20, board_width + 20)
+    board_rect = pygame.Rect(layout.margin_x - 10, layout.margin_y - 10, 
+                             layout.board_size + 20, layout.board_size + 20)
     pygame.draw.rect(screen, (40, 35, 25), board_rect, border_radius=8)
     pygame.draw.rect(screen, (80, 70, 50), board_rect, 3, border_radius=8)
     
@@ -382,13 +495,13 @@ def draw_board(game_state: GameState, valid_moves: list[Position],
         
         # Draw outer glow
         glow_size = int(8 + 4 * pulse)
-        glow = pygame.Surface((TILE_SIZE + glow_size*2, TILE_SIZE + glow_size*2), pygame.SRCALPHA)
+        glow = pygame.Surface((layout.tile_size + glow_size*2, layout.tile_size + glow_size*2), pygame.SRCALPHA)
         pygame.draw.rect(glow, (*HIGHLIGHT_COLOR, int(40 + 30 * pulse)), 
                         glow.get_rect(), border_radius=12)
         screen.blit(glow, (x - glow_size, y - glow_size))
         
         # Draw highlight
-        highlight = pygame.Surface((TILE_SIZE, TILE_SIZE), pygame.SRCALPHA)
+        highlight = pygame.Surface((layout.tile_size, layout.tile_size), pygame.SRCALPHA)
         alpha = int(80 + 40 * pulse)
         pygame.draw.rect(highlight, (*HIGHLIGHT_COLOR, alpha), highlight.get_rect(), border_radius=8)
         pygame.draw.rect(highlight, (*HIGHLIGHT_PULSE, int(150 + 50 * pulse)), 
@@ -429,36 +542,40 @@ def draw_board(game_state: GameState, valid_moves: list[Position],
     ]:
         # Glow effect for current player
         if is_glowing:
-            glow_radius = PAWN_RADIUS + 8 + int(4 * pulse)
+            glow_radius = layout.pawn_radius + 8 + int(4 * pulse)
             glow_surf = pygame.Surface((glow_radius*2 + 20, glow_radius*2 + 20), pygame.SRCALPHA)
             pygame.draw.circle(glow_surf, (*glow_color, int(60 + 30 * pulse)), 
                              (glow_radius + 10, glow_radius + 10), glow_radius)
             screen.blit(glow_surf, (center[0] - glow_radius - 10, center[1] - glow_radius - 10))
         
         # Shadow
-        pygame.draw.circle(screen, (20, 15, 10), (center[0] + 3, center[1] + 3), PAWN_RADIUS)
+        pygame.draw.circle(screen, (20, 15, 10), (center[0] + 3, center[1] + 3), layout.pawn_radius)
         
         # Main pawn body
-        pygame.draw.circle(screen, color, center, PAWN_RADIUS)
+        pygame.draw.circle(screen, color, center, layout.pawn_radius)
         
         # Inner highlight (3D effect)
-        highlight_pos = (center[0] - PAWN_RADIUS//3, center[1] - PAWN_RADIUS//3)
-        highlight_surf = pygame.Surface((PAWN_RADIUS*2, PAWN_RADIUS*2), pygame.SRCALPHA)
+        highlight_pos = (center[0] - layout.pawn_radius//3, center[1] - layout.pawn_radius//3)
+        highlight_surf = pygame.Surface((layout.pawn_radius*2, layout.pawn_radius*2), pygame.SRCALPHA)
         pygame.draw.circle(highlight_surf, (*[min(255, c + 60) for c in color], 100),
-                          (PAWN_RADIUS//2, PAWN_RADIUS//2), PAWN_RADIUS//2)
-        screen.blit(highlight_surf, (center[0] - PAWN_RADIUS, center[1] - PAWN_RADIUS))
+                          (layout.pawn_radius//2, layout.pawn_radius//2), layout.pawn_radius//2)
+        screen.blit(highlight_surf, (center[0] - layout.pawn_radius, center[1] - layout.pawn_radius))
         
         # Outer ring
-        pygame.draw.circle(screen, (255, 255, 255), center, PAWN_RADIUS, 3)
-        pygame.draw.circle(screen, (*[max(0, c - 40) for c in color], ), center, PAWN_RADIUS - 3, 2)
+        pygame.draw.circle(screen, (255, 255, 255), center, layout.pawn_radius, 3)
+        pygame.draw.circle(screen, (*[max(0, c - 40) for c in color], ), center, layout.pawn_radius - 3, 2)
 
 
 def draw_ui(game_state: GameState, mode: str, wall_mode: bool, wall_orientation: str,
             status_message: str = "") -> tuple[pygame.Rect, pygame.Rect]:
     """Draw game UI elements and return button rects (save_rect, menu_rect)."""
     
+    sw, sh = layout.screen_width, layout.screen_height
+    
     # Top panel for turn indicator
-    top_panel = pygame.Rect(MARGIN_X - 10, 5, 400, 45)
+    panel_width = min(400, int(sw * 0.35))
+    panel_height = max(35, int(45 * sh / DEFAULT_SCREEN_HEIGHT))
+    top_panel = pygame.Rect(layout.margin_x - 10, 5, panel_width, panel_height)
     draw_panel(top_panel, 200)
     
     turn_color = PLAYER1_COLOR if game_state.current_player == 1 else PLAYER2_COLOR
@@ -468,14 +585,16 @@ def draw_ui(game_state: GameState, mode: str, wall_mode: bool, wall_orientation:
         turn_color = PLAYER2_COLOR
     
     # Turn indicator dot
-    pygame.draw.circle(screen, turn_color, (MARGIN_X + 10, 27), 8)
-    pygame.draw.circle(screen, (255, 255, 255), (MARGIN_X + 10, 27), 8, 2)
+    dot_y = top_panel.centery
+    pygame.draw.circle(screen, turn_color, (layout.margin_x + 10, dot_y), 8)
+    pygame.draw.circle(screen, (255, 255, 255), (layout.margin_x + 10, dot_y), 8, 2)
     
     turn_surf = font.render(turn_text, True, TEXT_COLOR)
-    screen.blit(turn_surf, (MARGIN_X + 30, 15))
+    screen.blit(turn_surf, (layout.margin_x + 30, top_panel.y + (panel_height - turn_surf.get_height()) // 2))
     
     # Mode panel (top right)
-    mode_panel = pygame.Rect(SCREEN_WIDTH - 380, 5, 370, 45)
+    mode_panel_width = min(370, int(sw * 0.3))
+    mode_panel = pygame.Rect(sw - mode_panel_width - 10, 5, mode_panel_width, panel_height)
     draw_panel(mode_panel, 200)
     
     if wall_mode:
@@ -486,28 +605,35 @@ def draw_ui(game_state: GameState, mode: str, wall_mode: bool, wall_orientation:
         mode_color = HIGHLIGHT_COLOR
     
     mode_surf = font.render(mode_text, True, mode_color)
-    screen.blit(mode_surf, (SCREEN_WIDTH - 370, 15))
+    screen.blit(mode_surf, (mode_panel.x + 10, mode_panel.y + (panel_height - mode_surf.get_height()) // 2))
     
     # Bottom left panel - Player info
-    info_panel = pygame.Rect(MARGIN_X - 10, SCREEN_HEIGHT - 95, 350, 85)
+    info_panel_width = min(350, int(sw * 0.3))
+    info_panel_height = max(70, int(85 * sh / DEFAULT_SCREEN_HEIGHT))
+    info_panel = pygame.Rect(layout.margin_x - 10, sh - info_panel_height - 10, info_panel_width, info_panel_height)
     draw_panel(info_panel, 200)
     
     # Player 1 info with icon
-    pygame.draw.circle(screen, PLAYER1_COLOR, (MARGIN_X + 15, SCREEN_HEIGHT - 70), 10)
-    pygame.draw.circle(screen, (255, 255, 255), (MARGIN_X + 15, SCREEN_HEIGHT - 70), 10, 2)
+    p1_y = info_panel.y + info_panel_height // 3
+    pygame.draw.circle(screen, PLAYER1_COLOR, (layout.margin_x + 15, p1_y), 10)
+    pygame.draw.circle(screen, (255, 255, 255), (layout.margin_x + 15, p1_y), 10, 2)
     p1_text = f"Player 1: {game_state.player1_walls} walls"
     p1_surf = font.render(p1_text, True, PLAYER1_GLOW if game_state.current_player == 1 else TEXT_SECONDARY)
-    screen.blit(p1_surf, (MARGIN_X + 35, SCREEN_HEIGHT - 80))
+    screen.blit(p1_surf, (layout.margin_x + 35, p1_y - p1_surf.get_height() // 2))
     
     # Player 2 info with icon
-    pygame.draw.circle(screen, PLAYER2_COLOR, (MARGIN_X + 15, SCREEN_HEIGHT - 35), 10)
-    pygame.draw.circle(screen, (255, 255, 255), (MARGIN_X + 15, SCREEN_HEIGHT - 35), 10, 2)
+    p2_y = info_panel.y + info_panel_height * 2 // 3
+    pygame.draw.circle(screen, PLAYER2_COLOR, (layout.margin_x + 15, p2_y), 10)
+    pygame.draw.circle(screen, (255, 255, 255), (layout.margin_x + 15, p2_y), 10, 2)
     p2_text = f"Player 2: {game_state.player2_walls} walls"
     p2_surf = font.render(p2_text, True, PLAYER2_GLOW if game_state.current_player == 2 else TEXT_SECONDARY)
-    screen.blit(p2_surf, (MARGIN_X + 35, SCREEN_HEIGHT - 45))
+    screen.blit(p2_surf, (layout.margin_x + 35, p2_y - p2_surf.get_height() // 2))
     
     # Bottom center - Instructions panel
-    inst_panel = pygame.Rect(SCREEN_WIDTH // 2 - 250, SCREEN_HEIGHT - 60, 500, 50)
+    inst_panel_width = min(500, int(sw * 0.4))
+    inst_panel_height = max(40, int(50 * sh / DEFAULT_SCREEN_HEIGHT))
+    inst_panel = pygame.Rect(sw // 2 - inst_panel_width // 2, sh - inst_panel_height - 10, 
+                             inst_panel_width, inst_panel_height)
     draw_panel(inst_panel, 180)
     
     if wall_mode:
@@ -520,15 +646,22 @@ def draw_ui(game_state: GameState, mode: str, wall_mode: bool, wall_orientation:
     
     # Bottom right - Save and Menu buttons
     mouse_pos = pygame.mouse.get_pos()
-    save_rect = pygame.Rect(SCREEN_WIDTH - 230, SCREEN_HEIGHT - 55, 105, 42)
-    menu_rect = pygame.Rect(SCREEN_WIDTH - 115, SCREEN_HEIGHT - 55, 105, 42)
+    btn_width = max(80, int(105 * sw / DEFAULT_SCREEN_WIDTH))
+    btn_height = max(35, int(42 * sh / DEFAULT_SCREEN_HEIGHT))
+    btn_spacing = 10
+    
+    save_rect = pygame.Rect(sw - btn_width * 2 - btn_spacing - 10, sh - btn_height - 10, btn_width, btn_height)
+    menu_rect = pygame.Rect(sw - btn_width - 10, sh - btn_height - 10, btn_width, btn_height)
     
     draw_button("Save", save_rect, save_rect.collidepoint(mouse_pos), style="success")
     draw_button("Menu", menu_rect, menu_rect.collidepoint(mouse_pos), style="danger")
     
     # Status message with animation
     if status_message:
-        status_panel = pygame.Rect(SCREEN_WIDTH - 230, SCREEN_HEIGHT - 105, 220, 40)
+        status_width = min(220, int(sw * 0.18))
+        status_height = max(35, int(40 * sh / DEFAULT_SCREEN_HEIGHT))
+        status_panel = pygame.Rect(sw - status_width - 10, sh - btn_height - status_height - 20, 
+                                   status_width, status_height)
         pygame.draw.rect(screen, (30, 80, 40), status_panel, border_radius=8)
         pygame.draw.rect(screen, (80, 180, 100), status_panel, 2, border_radius=8)
         status_surf = font.render(status_message, True, (150, 255, 150))
@@ -542,90 +675,118 @@ def draw_menu() -> tuple[pygame.Rect, pygame.Rect, pygame.Rect]:
     """Draw the main menu and return button rects (pvp, pve, load)."""
     screen.fill(BG_COLOR)
     
+    sw, sh = layout.screen_width, layout.screen_height
+    
     # Decorative background pattern
-    for i in range(0, SCREEN_WIDTH, 100):
-        for j in range(0, SCREEN_HEIGHT, 100):
+    for i in range(0, sw, 100):
+        for j in range(0, sh, 100):
             alpha = 10 + ((i + j) % 20)
             dot_surf = pygame.Surface((4, 4), pygame.SRCALPHA)
             pygame.draw.circle(dot_surf, (80, 70, 50, alpha), (2, 2), 2)
             screen.blit(dot_surf, (i, j))
     
-    # Main content panel
-    panel_rect = pygame.Rect(SCREEN_WIDTH // 2 - 300, 350, 600, 700)
+    # Main content panel - scale with window
+    panel_width = min(600, int(sw * 0.7))
+    panel_height = min(700, int(sh * 0.65))
+    panel_y = int(sh * 0.25)
+    panel_rect = pygame.Rect(sw // 2 - panel_width // 2, panel_y, panel_width, panel_height)
     panel = pygame.Surface((panel_rect.width, panel_rect.height), pygame.SRCALPHA)
     pygame.draw.rect(panel, (35, 30, 25, 240), panel.get_rect(), border_radius=20)
     screen.blit(panel, panel_rect.topleft)
     pygame.draw.rect(screen, PANEL_BORDER, panel_rect, 3, border_radius=20)
     
     # Title with glow effect
+    title_y = panel_y + int(panel_height * 0.1)
     title_glow = title_font.render("QUORIDOR", True, ACCENT_COLOR)
     title_glow.set_alpha(30)
     for offset in [(2, 2), (-2, -2), (2, -2), (-2, 2)]:
-        screen.blit(title_glow, title_glow.get_rect(center=(SCREEN_WIDTH // 2 + offset[0], 420 + offset[1])))
+        screen.blit(title_glow, title_glow.get_rect(center=(sw // 2 + offset[0], title_y + offset[1])))
     
     title = title_font.render("QUORIDOR", True, ACCENT_COLOR)
-    title_rect = title.get_rect(center=(SCREEN_WIDTH // 2, 420))
+    title_rect = title.get_rect(center=(sw // 2, title_y))
     screen.blit(title, title_rect)
     
     # Decorative line under title
-    line_y = 470
-    pygame.draw.line(screen, PANEL_BORDER, (SCREEN_WIDTH // 2 - 150, line_y), 
-                    (SCREEN_WIDTH // 2 + 150, line_y), 2)
-    pygame.draw.circle(screen, ACCENT_COLOR, (SCREEN_WIDTH // 2, line_y), 5)
+    line_y = title_y + int(title.get_height() * 0.7)
+    pygame.draw.line(screen, PANEL_BORDER, (sw // 2 - 150, line_y), 
+                    (sw // 2 + 150, line_y), 2)
+    pygame.draw.circle(screen, ACCENT_COLOR, (sw // 2, line_y), 5)
     
     # Subtitle
+    subtitle_y = line_y + 30
     subtitle = font.render("A Strategic Board Game", True, TEXT_SECONDARY)
-    sub_rect = subtitle.get_rect(center=(SCREEN_WIDTH // 2, 500))
+    sub_rect = subtitle.get_rect(center=(sw // 2, subtitle_y))
     screen.blit(subtitle, sub_rect)
     
-    # Buttons with icons
-    pvp_rect = pygame.Rect(SCREEN_WIDTH // 2 - 180, 560, 360, 65)
-    pve_rect = pygame.Rect(SCREEN_WIDTH // 2 - 180, 645, 360, 65)
-    load_rect = pygame.Rect(SCREEN_WIDTH // 2 - 180, 730, 360, 65)
+    # Buttons with icons - scale sizes
+    btn_width = min(360, int(panel_width * 0.8))
+    btn_height = max(50, int(65 * sh / DEFAULT_SCREEN_HEIGHT))
+    btn_spacing = max(15, int(20 * sh / DEFAULT_SCREEN_HEIGHT))
+    
+    btn_start_y = subtitle_y + 60
+    
+    pvp_rect = pygame.Rect(sw // 2 - btn_width // 2, btn_start_y, btn_width, btn_height)
+    pve_rect = pygame.Rect(sw // 2 - btn_width // 2, btn_start_y + btn_height + btn_spacing, btn_width, btn_height)
+    load_rect = pygame.Rect(sw // 2 - btn_width // 2, btn_start_y + (btn_height + btn_spacing) * 2, btn_width, btn_height)
     
     mouse_pos = pygame.mouse.get_pos()
     draw_button("Player vs Player", pvp_rect, pvp_rect.collidepoint(mouse_pos), style="primary")
     draw_button("Player vs AI", pve_rect, pve_rect.collidepoint(mouse_pos), style="primary")
     draw_button("Load Game", load_rect, load_rect.collidepoint(mouse_pos))
     
-    # Instructions panel
-    inst_panel = pygame.Rect(SCREEN_WIDTH // 2 - 250, 830, 500, 180)
-    inst_bg = pygame.Surface((inst_panel.width, inst_panel.height), pygame.SRCALPHA)
-    pygame.draw.rect(inst_bg, (30, 25, 20, 180), inst_bg.get_rect(), border_radius=12)
-    screen.blit(inst_bg, inst_panel.topleft)
-    pygame.draw.rect(screen, (60, 50, 40), inst_panel, 1, border_radius=12)
+    # Instructions panel - only show if there's enough space
+    inst_start_y = load_rect.bottom + 30
+    available_space = panel_rect.bottom - inst_start_y - 20
     
-    # Instructions header
-    header = font.render("How to Play", True, ACCENT_COLOR)
-    screen.blit(header, (inst_panel.x + 20, inst_panel.y + 10))
-    
-    instructions = [
-        "• Move your pawn to the opposite side to win",
-        "• Place walls (W key) to block your opponent",
-        "• Each player has 10 walls to use",
-        "• You cannot completely block a path"
-    ]
-    
-    y_offset = inst_panel.y + 50
-    for line in instructions:
-        inst_surf = small_font.render(line, True, TEXT_SECONDARY)
-        screen.blit(inst_surf, (inst_panel.x + 25, y_offset))
-        y_offset += 30
+    if available_space > 120:
+        inst_panel_width = min(500, int(panel_width * 0.9))
+        inst_panel_height = min(180, available_space)
+        inst_panel = pygame.Rect(sw // 2 - inst_panel_width // 2, inst_start_y, 
+                                 inst_panel_width, inst_panel_height)
+        inst_bg = pygame.Surface((inst_panel.width, inst_panel.height), pygame.SRCALPHA)
+        pygame.draw.rect(inst_bg, (30, 25, 20, 180), inst_bg.get_rect(), border_radius=12)
+        screen.blit(inst_bg, inst_panel.topleft)
+        pygame.draw.rect(screen, (60, 50, 40), inst_panel, 1, border_radius=12)
+        
+        # Instructions header
+        header = font.render("How to Play", True, ACCENT_COLOR)
+        screen.blit(header, (inst_panel.x + 20, inst_panel.y + 10))
+        
+        instructions = [
+            "• Move your pawn to the opposite side to win",
+            "• Place walls (W key) to block your opponent",
+            "• Each player has 10 walls to use",
+            "• You cannot completely block a path"
+        ]
+        
+        y_offset = inst_panel.y + 50
+        line_height = max(25, int(30 * sh / DEFAULT_SCREEN_HEIGHT))
+        for line in instructions:
+            if y_offset + line_height > inst_panel.bottom - 10:
+                break
+            inst_surf = small_font.render(line, True, TEXT_SECONDARY)
+            screen.blit(inst_surf, (inst_panel.x + 25, y_offset))
+            y_offset += line_height
     
     return pvp_rect, pve_rect, load_rect
 
 
 def draw_game_over(winner: int) -> pygame.Rect:
     """Draw game over screen and return restart button rect."""
+    sw, sh = layout.screen_width, layout.screen_height
+    
     # Semi-transparent overlay with gradient
-    overlay = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
-    for y in range(SCREEN_HEIGHT):
-        alpha = int(180 + 40 * (y / SCREEN_HEIGHT))
-        pygame.draw.line(overlay, (0, 0, 0, min(255, alpha)), (0, y), (SCREEN_WIDTH, y))
+    overlay = pygame.Surface((sw, sh), pygame.SRCALPHA)
+    for y in range(sh):
+        alpha = int(180 + 40 * (y / sh))
+        pygame.draw.line(overlay, (0, 0, 0, min(255, alpha)), (0, y), (sw, y))
     screen.blit(overlay, (0, 0))
     
-    # Victory panel
-    panel_rect = pygame.Rect(SCREEN_WIDTH // 2 - 200, SCREEN_HEIGHT // 2 - 120, 400, 240)
+    # Victory panel - scale with screen
+    panel_width = min(400, int(sw * 0.5))
+    panel_height = min(240, int(sh * 0.3))
+    panel_rect = pygame.Rect(sw // 2 - panel_width // 2, sh // 2 - panel_height // 2, 
+                             panel_width, panel_height)
     panel = pygame.Surface((panel_rect.width, panel_rect.height), pygame.SRCALPHA)
     pygame.draw.rect(panel, (30, 25, 20, 250), panel.get_rect(), border_radius=20)
     screen.blit(panel, panel_rect.topleft)
@@ -637,11 +798,14 @@ def draw_game_over(winner: int) -> pygame.Rect:
     # Winner text    
     winner_text = f"Player {winner} Wins!"
     winner_surf = large_font.render(winner_text, True, glow_color)
-    winner_rect = winner_surf.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 - 10))
+    winner_rect = winner_surf.get_rect(center=(sw // 2, panel_rect.centery - panel_height // 6))
     screen.blit(winner_surf, winner_rect)
     
     # Restart button
-    restart_rect = pygame.Rect(SCREEN_WIDTH // 2 - 100, SCREEN_HEIGHT // 2 + 50, 200, 55)
+    btn_width = min(200, int(panel_width * 0.6))
+    btn_height = max(45, int(55 * sh / DEFAULT_SCREEN_HEIGHT))
+    restart_rect = pygame.Rect(sw // 2 - btn_width // 2, panel_rect.centery + panel_height // 6, 
+                               btn_width, btn_height)
     mouse_pos = pygame.mouse.get_pos()
     draw_button("Main Menu", restart_rect, restart_rect.collidepoint(mouse_pos))
     
@@ -652,37 +816,54 @@ def draw_difficulty_select() -> tuple[pygame.Rect, pygame.Rect, pygame.Rect, pyg
     """Draw difficulty selection screen and return button rects."""
     screen.fill(BG_COLOR)
     
+    sw, sh = layout.screen_width, layout.screen_height
+    
     # Decorative background
-    for i in range(0, SCREEN_WIDTH, 100):
-        for j in range(0, SCREEN_HEIGHT, 100):
+    for i in range(0, sw, 100):
+        for j in range(0, sh, 100):
             alpha = 10 + ((i + j) % 20)
             dot_surf = pygame.Surface((4, 4), pygame.SRCALPHA)
             pygame.draw.circle(dot_surf, (80, 70, 50, alpha), (2, 2), 2)
             screen.blit(dot_surf, (i, j))
     
-    # Main panel
-    panel_rect = pygame.Rect(SCREEN_WIDTH // 2 - 280, 200, 560, 700)
+    # Main panel - scale with window
+    panel_width = min(560, int(sw * 0.7))
+    panel_height = min(700, int(sh * 0.75))
+    panel_y = int(sh * 0.12)
+    panel_rect = pygame.Rect(sw // 2 - panel_width // 2, panel_y, panel_width, panel_height)
     panel = pygame.Surface((panel_rect.width, panel_rect.height), pygame.SRCALPHA)
     pygame.draw.rect(panel, (35, 30, 25, 240), panel.get_rect(), border_radius=20)
     screen.blit(panel, panel_rect.topleft)
     pygame.draw.rect(screen, PANEL_BORDER, panel_rect, 3, border_radius=20)
     
     # Title
+    title_y = panel_y + int(panel_height * 0.08)
     title = large_font.render("SELECT DIFFICULTY", True, ACCENT_COLOR)
-    title_rect = title.get_rect(center=(SCREEN_WIDTH // 2, 280))
+    title_rect = title.get_rect(center=(sw // 2, title_y))
     screen.blit(title, title_rect)
     
     # Decorative line
-    pygame.draw.line(screen, PANEL_BORDER, (SCREEN_WIDTH // 2 - 150, 320), 
-                    (SCREEN_WIDTH // 2 + 150, 320), 2)
+    line_y = title_y + int(title.get_height() * 0.8)
+    pygame.draw.line(screen, PANEL_BORDER, (sw // 2 - 150, line_y), 
+                    (sw // 2 + 150, line_y), 2)
     
     mouse_pos = pygame.mouse.get_pos()
     
-    # Difficulty buttons with enhanced styling
-    easy_rect = pygame.Rect(SCREEN_WIDTH // 2 - 180, 370, 360, 110)
-    medium_rect = pygame.Rect(SCREEN_WIDTH // 2 - 180, 510, 360, 110)
-    hard_rect = pygame.Rect(SCREEN_WIDTH // 2 - 180, 650, 360, 110)
-    back_rect = pygame.Rect(SCREEN_WIDTH // 2 - 120, 800, 240, 55)
+    # Difficulty buttons with enhanced styling - scale sizes
+    btn_width = min(360, int(panel_width * 0.8))
+    btn_height = max(80, int(110 * sh / DEFAULT_SCREEN_HEIGHT))
+    btn_spacing = max(20, int(30 * sh / DEFAULT_SCREEN_HEIGHT))
+    back_btn_height = max(45, int(55 * sh / DEFAULT_SCREEN_HEIGHT))
+    
+    btn_start_y = line_y + 50
+    
+    easy_rect = pygame.Rect(sw // 2 - btn_width // 2, btn_start_y, btn_width, btn_height)
+    medium_rect = pygame.Rect(sw // 2 - btn_width // 2, btn_start_y + btn_height + btn_spacing, btn_width, btn_height)
+    hard_rect = pygame.Rect(sw // 2 - btn_width // 2, btn_start_y + (btn_height + btn_spacing) * 2, btn_width, btn_height)
+    
+    back_btn_width = min(240, int(btn_width * 0.7))
+    back_y = min(hard_rect.bottom + btn_spacing + 20, panel_rect.bottom - back_btn_height - 20)
+    back_rect = pygame.Rect(sw // 2 - back_btn_width // 2, back_y, back_btn_width, back_btn_height)
     
     # Helper function for difficulty buttons
     def draw_difficulty_button(rect, label, subtitle, colors, hover):
@@ -707,13 +888,13 @@ def draw_difficulty_select() -> tuple[pygame.Rect, pygame.Rect, pygame.Rect, pyg
         
         # Label
         label_surf = large_font.render(label, True, text_color)
-        label_rect = label_surf.get_rect(center=(rect.centerx, rect.centery - 12))
+        label_rect = label_surf.get_rect(center=(rect.centerx, rect.centery - rect.height // 8))
         screen.blit(label_surf, label_rect)
         
         # Subtitle
         sub_surf = small_font.render(subtitle, True, (*text_color[:3],))
         sub_surf.set_alpha(180)
-        sub_rect = sub_surf.get_rect(center=(rect.centerx, rect.centery + 25))
+        sub_rect = sub_surf.get_rect(center=(rect.centerx, rect.centery + rect.height // 4))
         screen.blit(sub_surf, sub_rect)
     
     # Easy button - Green theme
@@ -760,29 +941,35 @@ def draw_load_screen(scroll_offset: int = 0) -> tuple[list[tuple[pygame.Rect, an
     """Draw load game screen and return (save_button_rects, back_rect)."""
     screen.fill(BG_COLOR)
     
+    sw, sh = layout.screen_width, layout.screen_height
+    
     # Decorative background
-    for i in range(0, SCREEN_WIDTH, 100):
-        for j in range(0, SCREEN_HEIGHT, 100):
+    for i in range(0, sw, 100):
+        for j in range(0, sh, 100):
             alpha = 10 + ((i + j) % 20)
             dot_surf = pygame.Surface((4, 4), pygame.SRCALPHA)
             pygame.draw.circle(dot_surf, (80, 70, 50, alpha), (2, 2), 2)
             screen.blit(dot_surf, (i, j))
     
-    # Main panel
-    panel_rect = pygame.Rect(SCREEN_WIDTH // 2 - 350, 60, 700, SCREEN_HEIGHT - 120)
+    # Main panel - scale with window
+    panel_width = min(700, int(sw * 0.85))
+    panel_height = sh - 120
+    panel_rect = pygame.Rect(sw // 2 - panel_width // 2, 60, panel_width, panel_height)
     panel = pygame.Surface((panel_rect.width, panel_rect.height), pygame.SRCALPHA)
     pygame.draw.rect(panel, (35, 30, 25, 240), panel.get_rect(), border_radius=20)
     screen.blit(panel, panel_rect.topleft)
     pygame.draw.rect(screen, PANEL_BORDER, panel_rect, 3, border_radius=20)
     
     # Title
+    title_y = 100
     title = large_font.render("LOAD GAME", True, ACCENT_COLOR)
-    title_rect = title.get_rect(center=(SCREEN_WIDTH // 2, 120))
+    title_rect = title.get_rect(center=(sw // 2, title_y))
     screen.blit(title, title_rect)
     
     # Decorative line
-    pygame.draw.line(screen, PANEL_BORDER, (SCREEN_WIDTH // 2 - 150, 160), 
-                    (SCREEN_WIDTH // 2 + 150, 160), 2)
+    line_y = title_y + int(title.get_height() * 0.7)
+    pygame.draw.line(screen, PANEL_BORDER, (sw // 2 - 150, line_y), 
+                    (sw // 2 + 150, line_y), 2)
     
     mouse_pos = pygame.mouse.get_pos()
     
@@ -793,27 +980,35 @@ def draw_load_screen(scroll_offset: int = 0) -> tuple[list[tuple[pygame.Rect, an
     
     if not saves:
         # No saves message with icon
-        empty_panel = pygame.Rect(SCREEN_WIDTH // 2 - 200, 350, 400, 150)
+        empty_panel_width = min(400, int(panel_width * 0.7))
+        empty_panel_height = min(150, int(sh * 0.15))
+        empty_panel = pygame.Rect(sw // 2 - empty_panel_width // 2, sh // 2 - empty_panel_height // 2, 
+                                  empty_panel_width, empty_panel_height)
         pygame.draw.rect(screen, (40, 35, 30), empty_panel, border_radius=15)
         pygame.draw.rect(screen, (60, 55, 45), empty_panel, 2, border_radius=15)
         
         no_saves = font.render("No saved games found", True, TEXT_SECONDARY)
-        screen.blit(no_saves, no_saves.get_rect(center=(SCREEN_WIDTH // 2, 450)))
+        screen.blit(no_saves, no_saves.get_rect(center=(sw // 2, empty_panel.centery - 15)))
         
         hint = small_font.render("Start a game and click Save to create one", True, (120, 115, 100))
-        screen.blit(hint, hint.get_rect(center=(SCREEN_WIDTH // 2, 480)))
+        screen.blit(hint, hint.get_rect(center=(sw // 2, empty_panel.centery + 15)))
     else:
-        # Draw save file buttons
-        y_start = 200
-        button_height = 80
-        button_spacing = 12
-        max_visible = 12
+        # Draw save file buttons - scale sizes
+        y_start = line_y + 40
+        button_height = max(60, int(80 * sh / DEFAULT_SCREEN_HEIGHT))
+        button_spacing = max(8, int(12 * sh / DEFAULT_SCREEN_HEIGHT))
+        btn_width = min(600, int(panel_width * 0.9))
+        
+        # Calculate max visible based on available space
+        back_btn_height = max(45, int(55 * sh / DEFAULT_SCREEN_HEIGHT))
+        available_height = sh - y_start - back_btn_height - 100
+        max_visible = max(3, int(available_height / (button_height + button_spacing)))
         
         visible_saves = saves[scroll_offset:scroll_offset + max_visible]
         
         for i, (filepath, display_name, timestamp) in enumerate(visible_saves):
             y = y_start + i * (button_height + button_spacing)
-            rect = pygame.Rect(SCREEN_WIDTH // 2 - 300, y, 600, button_height)
+            rect = pygame.Rect(sw // 2 - btn_width // 2, y, btn_width, button_height)
             
             hover = rect.collidepoint(mouse_pos)
             
@@ -833,11 +1028,11 @@ def draw_load_screen(scroll_offset: int = 0) -> tuple[list[tuple[pygame.Rect, an
             
             # Display name (mode + difficulty)
             name_surf = font.render(display_name, True, TEXT_COLOR if hover else TEXT_SECONDARY)
-            screen.blit(name_surf, (rect.x + 55, rect.y + 15))
+            screen.blit(name_surf, (rect.x + 55, rect.y + button_height // 4 - name_surf.get_height() // 2))
             
             # Timestamp
             time_surf = small_font.render(f"{timestamp}", True, (140, 135, 125))
-            screen.blit(time_surf, (rect.x + 55, rect.y + 48))
+            screen.blit(time_surf, (rect.x + 55, rect.y + button_height * 3 // 4 - time_surf.get_height() // 2))
             
             # Filename (smaller, right side)
             filename = filepath.name
@@ -849,20 +1044,23 @@ def draw_load_screen(scroll_offset: int = 0) -> tuple[list[tuple[pygame.Rect, an
         
         # Scroll indicators
         if scroll_offset > 0:
-            up_indicator = pygame.Rect(SCREEN_WIDTH // 2 - 100, 175, 200, 25)
+            up_indicator = pygame.Rect(sw // 2 - 100, y_start - 25, 200, 25)
             pygame.draw.rect(screen, (50, 45, 40), up_indicator, border_radius=5)
             up_text = small_font.render("Scroll up for more", True, ACCENT_COLOR)
             screen.blit(up_text, up_text.get_rect(center=up_indicator.center))
         
         if scroll_offset + max_visible < len(saves):
             down_y = y_start + max_visible * (button_height + button_spacing) + 5
-            down_indicator = pygame.Rect(SCREEN_WIDTH // 2 - 100, down_y, 200, 25)
+            down_indicator = pygame.Rect(sw // 2 - 100, down_y, 200, 25)
             pygame.draw.rect(screen, (50, 45, 40), down_indicator, border_radius=5)
             down_text = small_font.render("Scroll down for more", True, ACCENT_COLOR)
             screen.blit(down_text, down_text.get_rect(center=down_indicator.center))
     
     # Back button
-    back_rect = pygame.Rect(SCREEN_WIDTH // 2 - 120, SCREEN_HEIGHT - 80, 240, 55)
+    back_btn_width = min(240, int(panel_width * 0.4))
+    back_btn_height = max(45, int(55 * sh / DEFAULT_SCREEN_HEIGHT))
+    back_rect = pygame.Rect(sw // 2 - back_btn_width // 2, sh - back_btn_height - 25, 
+                            back_btn_width, back_btn_height)
     draw_button("Back", back_rect, back_rect.collidepoint(mouse_pos))
     
     return save_buttons, back_rect
@@ -872,6 +1070,8 @@ def draw_load_screen(scroll_offset: int = 0) -> tuple[list[tuple[pygame.Rect, an
 
 def main():
     """Main game loop."""
+    global screen
+    
     game_mode = MODE_MENU
     game_state = GameState()
     ai_player = None
@@ -901,6 +1101,10 @@ def main():
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
+            
+            # Handle window resize
+            if event.type == pygame.VIDEORESIZE:
+                screen = handle_resize(event.w, event.h)
             
             if event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_ESCAPE:
