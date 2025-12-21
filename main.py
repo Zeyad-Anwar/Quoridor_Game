@@ -222,8 +222,20 @@ clock = pygame.time.Clock()
 # Initialize fonts
 create_fonts()
 
+
+def resource_path(relative_path):
+    """Get absolute path to resource, works for dev and for PyInstaller"""
+    try:
+        # PyInstaller creates a temp folder and stores path in _MEIPASS
+        base_path = sys._MEIPASS
+    except Exception:
+        base_path = os.path.abspath(".")
+
+    return os.path.join(base_path, relative_path)
+
+
 # Load Assets - Keep raw image for rescaling
-raw_tile_img = pygame.image.load("assets/tile.png")
+raw_tile_img = pygame.image.load(resource_path("assets/tile.png"))
 tile_img = pygame.transform.scale(raw_tile_img, (layout.tile_size, layout.tile_size))
 
 

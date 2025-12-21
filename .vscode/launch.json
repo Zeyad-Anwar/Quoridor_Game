@@ -1,0 +1,39 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Run Quoridor Game",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/main.py",
+      "console": "integratedTerminal",
+      "justMyCode": true,
+      "cwd": "${workspaceFolder}"
+    },
+    {
+      "name": "Debug Quoridor Game",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/main.py",
+      "console": "integratedTerminal",
+      "justMyCode": false,
+      "cwd": "${workspaceFolder}",
+      "showReturnValue": true,
+      "stopOnEntry": false
+    },
+    {
+      "name": "Run Built Executable",
+      "type": "node-terminal",
+      "request": "launch",
+      "command": "${workspaceFolder}/dist/Quoridor",
+      "cwd": "${workspaceFolder}",
+      "preLaunchTask": "Build Release (Clean + Build)",
+      "linux": {
+        "command": "${workspaceFolder}/dist/Quoridor"
+      },
+      "windows": {
+        "command": "${workspaceFolder}\\dist\\Quoridor.exe"
+      }
+    }
+  ]
+}

@@ -1,0 +1,98 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Build with PyInstaller",
+      "type": "shell",
+      "command": "uv",
+      "args": ["run", "pyinstaller", "quoridor_game.spec", "--clean"],
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": false,
+        "panel": "shared",
+        "showReuseMessage": true,
+        "clear": false
+      },
+      "problemMatcher": {
+        "owner": "pyinstaller",
+        "fileLocation": ["relative", "${workspaceFolder}"],
+        "pattern": {
+          "regexp": "^(.*):(\\d+):\\s+(warning|error):\\s+(.*)$",
+          "file": 1,
+          "line": 2,
+          "severity": 3,
+          "message": 4
+        }
+      }
+    },
+    {
+      "label": "Clean Build",
+      "type": "shell",
+      "command": "${command:python.interpreterPath}",
+      "args": [
+        "-c",
+        "import shutil, pathlib; [shutil.rmtree(p, ignore_errors=True) for p in [pathlib.Path('build'), pathlib.Path('dist')]]"
+      ],
+      "windows": {
+        "command": "cmd",
+        "args": [
+          "/c",
+          "if exist build rmdir /s /q build && if exist dist rmdir /s /q dist"
+        ]
+      },
+      "linux": {
+        "command": "sh",
+        "args": ["-c", "rm -rf build dist"]
+      },
+      "osx": {
+        "command": "sh",
+        "args": ["-c", "rm -rf build dist"]
+      },
+      "presentation": {
+        "echo": true,
+        "reveal": "silent",
+        "focus": false,
+        "panel": "shared"
+      }
+    },
+    {
+      "label": "Build Release (Clean + Build)",
+      "dependsOrder": "sequence",
+      "dependsOn": ["Clean Build", "Build with PyInstaller"],
+      "problemMatcher": []
+    },
+    {
+      "label": "Test Build",
+      "type": "shell",
+      "command": "${workspaceFolder}/dist/Quoridor",
+      "windows": {
+        "command": "${workspaceFolder}\\dist\\Quoridor.exe"
+      },
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": false,
+        "panel": "dedicated"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Install Build Dependencies",
+      "type": "shell",
+      "command": "uv",
+      "args": ["sync", "--extra", "build", "--no-dev"],
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": false,
+        "panel": "shared"
+      },
+      "problemMatcher": []
+    }
+  ]
+}
