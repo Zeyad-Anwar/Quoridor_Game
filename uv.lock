@@ -1748,7 +1748,6 @@ source = { editable = "." }
 dependencies = [
     { name = "numpy" },
     { name = "pygame-ce" },
-    { name = "torch" },
 ]
 
 [package.optional-dependencies]
@@ -1763,6 +1762,7 @@ distributed = [
 ]
 train = [
     { name = "tensorboard" },
+    { name = "torch" },
     { name = "tqdm" },
 ]
 
@@ -1775,7 +1775,7 @@ requires-dist = [
     { name = "ray", extras = ["default"], marker = "extra == 'distributed'", specifier = ">=2.9.0" },
     { name = "tensorboard", marker = "extra == 'distributed'", specifier = ">=2.15.0" },
     { name = "tensorboard", marker = "extra == 'train'", specifier = ">=2.15.0" },
-    { name = "torch", specifier = ">=2.9.1" },
+    { name = "torch", marker = "extra == 'train'", specifier = ">=2.9.1" },
     { name = "tqdm", marker = "extra == 'distributed'", specifier = ">=4.65.0" },
     { name = "tqdm", marker = "extra == 'train'", specifier = ">=4.65.0" },
 ]
