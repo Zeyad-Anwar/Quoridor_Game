@@ -1,0 +1,108 @@
+name: Build and Release Executables
+
+on:
+  push:
+    tags:
+      - "v*" # Trigger on version tags like v1.0.0
+  workflow_dispatch: # Allow manual trigger
+
+permissions:
+  contents: write # Required for creating releases
+
+jobs:
+  build:
+    name: Build on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        include:
+          - os: ubuntu-latest
+            artifact_name: Quoridor-Linux
+            asset_name: Quoridor-Linux-x86_64
+            package_path: dist/Quoridor-Linux.tar.gz
+          - os: windows-latest
+            artifact_name: Quoridor-Windows
+            asset_name: Quoridor-Windows-x86_64.exe
+            package_path: dist/Quoridor-Windows.zip
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Install dependencies with uv
+        run: |
+          uv venv
+          uv pip install pyinstaller
+          uv pip install -e . --no-deps
+          uv pip install pygame-ce numpy
+          uv pip install --index-url https://download.pytorch.org/whl/cpu "torch>=2.9.1"
+
+      - name: Build with PyInstaller (Linux/macOS)
+        if: runner.os != 'Windows'
+        run: |
+          source .venv/bin/activate
+          pyinstaller quoridor.spec
+
+      - name: Build with PyInstaller (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          .venv\Scripts\activate
+          pyinstaller quoridor.spec
+
+      - name: Package Linux build
+        if: runner.os == 'Linux'
+        run: |
+          cd dist
+          tar -czf ${{ matrix.artifact_name }}.tar.gz Quoridor
+
+      - name: Package Windows build
+        if: runner.os == 'Windows'
+        run: |
+          cd dist
+          Compress-Archive -Path Quoridor -DestinationPath ${{ matrix.artifact_name }}.zip
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: ${{ matrix.package_path }}
+          if-no-files-found: error
+
+  release:
+    name: Create Release
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Display structure of downloaded files
+        run: ls -R artifacts
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            artifacts/**/*.tar.gz
+            artifacts/**/*.zip
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

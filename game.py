@@ -5,9 +5,12 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Literal, Optional
 from collections import deque
+from datetime import datetime
+from pathlib import Path
 import copy
+import json
 
-from constants import GRID_COUNT
+from constants import GRID_COUNT, SAVES_DIR
 
 # Type aliases
 Player = Literal[1, 2]
@@ -462,3 +465,118 @@ class GameState:
             and self.walls == other.walls
             and self.current_player == other.current_player
         )
+
+
+# --- SAVE/LOAD FUNCTIONS ---
+
+def save_game(game_state: GameState, game_mode: str, ai_difficulty: str | None = None,
+              filename: str | None = None) -> Path:
+    """
+    Save game state to a JSON file.
+    
+    Args:
+        game_state: The current game state to save.
+        game_mode: The current game mode ('pvp' or 'pve').
+        ai_difficulty: AI difficulty level (if PVE mode).
+        filename: Optional custom filename. If None, auto-generates with timestamp.
+    
+    Returns:
+        Path to the saved file.
+    """
+    saves_dir = Path(SAVES_DIR)
+    saves_dir.mkdir(exist_ok=True)
+    
+    if filename is None:
+        filename = f"save_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+    
+    save_data = {
+        "version": 1,
+        "player1_pos": list(game_state.player1_pos),
+        "player2_pos": list(game_state.player2_pos),
+        "player1_walls": game_state.player1_walls,
+        "player2_walls": game_state.player2_walls,
+        "walls": [[list(pos), orient] for pos, orient in game_state.walls],
+        "current_player": game_state.current_player,
+        "move_count": game_state.move_count,
+        "winner": game_state.winner,
+        "game_mode": game_mode,
+        "ai_difficulty": ai_difficulty,
+        "timestamp": datetime.now().isoformat()
+    }
+    
+    filepath = saves_dir / filename
+    with open(filepath, 'w') as f:
+        json.dump(save_data, f, indent=2)
+    
+    return filepath
+
+
+def load_game(filepath: Path | str) -> tuple[GameState, str, str | None]:
+    """
+    Load game state from a JSON file.
+    
+    Args:
+        filepath: Path to the save file.
+    
+    Returns:
+        Tuple of (GameState, game_mode, ai_difficulty).
+    """
+    with open(filepath, 'r') as f:
+        data = json.load(f)
+    
+    # Convert walls back to set of tuples
+    walls = {(tuple(pos), orient) for pos, orient in data["walls"]}
+    
+    game_state = GameState(
+        player1_pos=tuple(data["player1_pos"]),
+        player2_pos=tuple(data["player2_pos"]),
+        player1_walls=data["player1_walls"],
+        player2_walls=data["player2_walls"],
+        walls=walls,
+        current_player=data["current_player"],
+        move_count=data["move_count"],
+        winner=data["winner"]
+    )
+    
+    return game_state, data["game_mode"], data.get("ai_difficulty")
+
+
+def get_save_files() -> list[tuple[Path, str, str]]:
+    """
+    Get list of available save files with metadata.
+    
+    Returns:
+        List of tuples: (filepath, display_name, timestamp_str)
+    """
+    saves_dir = Path(SAVES_DIR)
+    if not saves_dir.exists():
+        return []
+    
+    saves = []
+    for filepath in sorted(saves_dir.glob("*.json"), reverse=True):
+        try:
+            with open(filepath, 'r') as f:
+                data = json.load(f)
+            
+            # Create display name
+            mode = data.get("game_mode", "unknown").upper()
+            difficulty = data.get("ai_difficulty", "")
+            if difficulty:
+                display = f"{mode} ({difficulty.capitalize()})"
+            else:
+                display = mode
+            
+            # Format timestamp
+            timestamp = data.get("timestamp", "")
+            if timestamp:
+                dt = datetime.fromisoformat(timestamp)
+                timestamp_str = dt.strftime("%Y-%m-%d %H:%M")
+            else:
+                timestamp_str = "Unknown"
+            
+            saves.append((filepath, display, timestamp_str))
+        except (json.JSONDecodeError, KeyError):
+            # Skip corrupted files
+            continue
+    
+    return saves

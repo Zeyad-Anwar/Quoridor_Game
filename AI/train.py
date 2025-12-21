@@ -535,7 +535,7 @@ def network_vs_random_game(
     game_state = GameState()
     game_history = []  # (state, policy, network_player)
     move_count = 0
-    max_moves = 200  # Increased to allow proper game completion
+    max_moves = 100  # Increased to allow proper game completion
     
     # Randomly decide which player is the network
     network_player = 2
