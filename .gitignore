@@ -33,6 +33,9 @@ MANIFEST
 # Don't ignore our custom spec file
 # *.spec
 
+# Candidate Images for icons
+icon/*.png
+
 # Installer logs
 pip-log.txt
 pip-delete-this-directory.txt

@@ -85,6 +85,7 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
+    icon='icon/Icon1.ico',  # Application icon for Windows and Linux
     # Best bytecode optimization level
     optimize=2,
 )
